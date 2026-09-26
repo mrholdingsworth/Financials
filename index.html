@@ -91,7 +91,25 @@ details[open] summary::before{content:"\25BE  "}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media(max-width:660px){.split{grid-template-columns:1fr}.wrap{padding:16px 12px 60px}}
 
+/* --- modal: tools open over the page, which blurs behind them --- */
+.modal{display:none;position:fixed;inset:0;z-index:50;background:rgba(5,7,10,.55);
+       -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);
+       align-items:flex-start;justify-content:center;padding:5vh 20px}
+.modal.open{display:flex}
+.modalcard{background:var(--panel);border:1px solid var(--line2);border-radius:14px;
+           max-width:1000px;width:100%;max-height:90vh;display:flex;flex-direction:column;
+           box-shadow:0 24px 70px rgba(0,0,0,.5)}
+.mbar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 22px 12px;border-bottom:1px solid var(--line)}
+.mtitle{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mtitle h3{font-size:16px}
+.mbody{overflow:auto;padding:16px 22px 20px}
+button.close{font-size:20px;line-height:1;padding:3px 10px;color:var(--sub)}
+body.locked{overflow:hidden}
+@media(max-width:660px){.modal{padding:10px}.modalcard{max-height:calc(100vh - 20px)}.mbar,.mbody{padding-left:14px;padding-right:14px}}
+
 /* --- this app --- */
+.dt{color:var(--gold)}
+th.dt{color:var(--gold)}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
 .brand{display:flex;align-items:baseline;flex-wrap:wrap}
 .word{font-size:26px;font-weight:700;letter-spacing:-.02em}
@@ -124,6 +142,9 @@ tr.inactive td{color:var(--mut)}
 .rhead h2{font-size:18px}
 .rctl{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
 .rctl input{width:160px}
+/* One height for every control in the row: a date input draws its calendar icon taller than a button's text. */
+.rctl input,.rctl button{height:34px}
+.rctl button{padding-top:0;padding-bottom:0}
 .stmts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:14px;align-items:start}
 .stmts .card{margin-bottom:0}
 .shead{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
@@ -162,7 +183,6 @@ tr.inactive td{color:var(--mut)}
   <div id="banners" class="no-print"></div>
 
   <nav class="toolbar no-print" id="toolbar"></nav>
-  <section class="card no-print" id="tool"></section>
 
   <section class="card" id="rhead">
     <div class="rhead">
@@ -178,6 +198,14 @@ tr.inactive td{color:var(--mut)}
     </div>
   </section>
   <section class="stmts" id="stmts"></section>
+</div>
+
+<div class="modal no-print" id="toolModal" onmousedown="if(event.target===this)openTool(null)">
+  <div class="modalcard" role="dialog" aria-modal="true" aria-labelledby="toolTitle">
+    <div class="mbar"><div class="mtitle"><h3 id="toolTitle"></h3><span id="toolTag"></span></div>
+      <button class="close" onclick="openTool(null)" title="Close (Esc)" aria-label="Close">×</button></div>
+    <div class="mbody" id="tool"></div>
+  </div>
 </div>
 
 <input type="file" id="impFile" accept=".json,application/json" style="display:none" onchange="importFile(this)">
@@ -199,7 +227,8 @@ const TYPES = {
 };
 const TYPE_ORDER = ["asset","liability","equity","revenue","expense"];
 
-const DEFAULT_COA = [
+// Used only by the demo. New books start with an empty chart of accounts.
+const DEMO_COA = [
   ["1000","Checking","asset","cash"],
   ["1010","Savings","asset","cash"],
   ["1100","Accounts Receivable","asset","current"],
@@ -255,27 +284,49 @@ function today(){
   const d = new Date();
   return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
 }
-const validDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s||"");
+const pad2 = n => String(n).padStart(2,"0");
+// Day 0 of the next month is the last day of this one, so Feb comes out as 28 or 29 by the calendar, not by a table.
+const lastDay = (y, m) => new Date(y, m, 0).getDate();
+// Checks that the date actually exists, not just its shape: an imported 2025-02-29 is rejected.
+function validDate(s){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(s||"")) return false;
+  const y = +s.slice(0,4), m = +s.slice(5,7), d = +s.slice(8,10);
+  return m>=1 && m<=12 && d>=1 && d<=lastDay(y,m);
+}
 const fmtD = s => new Date(s+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+const gD = s => '<span class="dt">' + fmtD(s) + '</span>';
+const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+/* ---------- fiscal year ----------
+   A fiscal year is named for the calendar year it ends in and always ends on the last day of the
+   year-end month. Everything is done on YYYY-MM-DD strings, so no time zone or DST shift can move a
+   boundary, and lastDay() handles leap years. */
+const fyM = () => root.fyEnd;
+const fyEndDate = fy => fy + "-" + pad2(fyM()) + "-" + pad2(lastDay(fy, fyM()));
+const fyStart = fy => fyM()===12 ? fy + "-01-01" : (fy-1) + "-" + pad2(fyM()+1) + "-01";
+const fyOf = date => { const y = +date.slice(0,4), m = +date.slice(5,7); return m>fyM() ? y+1 : y; };
+const fyLabel = fy => "FY " + fy;
 
 /* ---------- state ---------- */
 let root, saveOk = true, loadNote = null;
-const ui = {tool:"entry", asOf:today(), draft:null, acctForm:null, ledgerAcct:null, ledgerYear:"all",
+const ui = {tool:null, asOf:today(), draft:null, acctForm:null, ledgerAcct:null, ledgerYear:"all",
             jYear:"all", jFilter:"", notice:null};
 
 function blank(){
-  const r = {schema:SCHEMA, company:"", seq:1, changes:0, lastExport:null, accounts:[], entries:[]};
-  for(const [num,name,type,sub] of DEFAULT_COA) r.accounts.push({id:r.seq++, num, name, type, sub, active:true});
-  return r;
+  return {schema:SCHEMA, company:"", fyEnd:12, seq:1, changes:0, lastExport:null, accounts:[], entries:[]};
+}
+function demoAccounts(r){
+  return DEMO_COA.map(([num,name,type,sub]) => ({id:r.seq++, num, name, type, sub, active:true}));
 }
 
 // Backfills every field added since v1, so old saves open without versioned migrations.
 function normalize(r){
   if(!r || typeof r!=="object") return blank();
-  if(!Array.isArray(r.accounts)) r.accounts = blank().accounts;
+  if(!Array.isArray(r.accounts)) r.accounts = [];
   if(!Array.isArray(r.entries)) r.entries = [];
   r.schema = SCHEMA;
   r.company = String(r.company||"");
+  r.fyEnd = Math.min(12, Math.max(1, Math.round(+r.fyEnd) || 12));
   r.changes = +r.changes || 0;
   if(r.lastExport===undefined) r.lastExport = null;
   let max = 0;
@@ -355,16 +406,16 @@ function netIncome(m){
   for(const a of root.accounts) if(isIS(a)) t -= (m.get(a.id)||0);
   return t;
 }
-// The year closes itself: income before Jan 1 of D's year is retained earnings, income since is
-// current-year net income. No closing entry is ever posted, so none can be forgotten or doubled.
+// The year closes itself: income before the start of D's fiscal year is retained earnings, income
+// since is current-year net income. No closing entry is ever posted, so none can be forgotten or doubled.
 function positionAt(D){
-  const cum = sums(null, D), ytd = sums(D.slice(0,4)+"-01-01", D);
+  const cum = sums(null, D), ytd = sums(fyStart(fyOf(D)), D);
   const ni = netIncome(ytd);
   return {cum, ni, prior: netIncome(cum) - ni};
 }
 function yearList(){
-  const ys = new Set([+today().slice(0,4)]);
-  for(const e of root.entries) ys.add(+e.date.slice(0,4));
+  const ys = new Set([fyOf(today())]);
+  for(const e of root.entries) ys.add(fyOf(e.date));
   return [...ys].sort((a,b) => b-a);
 }
 function entryTotal(e){ return e.lines.reduce((t,l) => t+l.dr, 0); }
@@ -391,18 +442,22 @@ function renderBanners(){
 const TOOLS = [["entry","New entry"],["journal","Journal"],["coa","Chart of accounts"],["ledger","Ledger"],["settings","Settings & backup"]];
 function renderToolbar(){
   $("toolbar").innerHTML = TOOLS.map(([k,l]) =>
-    '<button class="' + (k==="entry"?'primary ':'') + (ui.tool===k?'on':'') + '" onclick="openTool(\'' + k + '\')">' + l + '</button>').join("")
-    + (ui.tool ? '<button onclick="openTool(null)" title="Collapse the tool panel">Hide</button>' : '');
+    '<button class="' + (k==="entry"?'primary':'') + '" onclick="openTool(\'' + k + '\')">' + l + '</button>').join("");
 }
+// Closing keeps any half-typed entry in ui.draft, so a stray click on the backdrop loses nothing.
 function openTool(k){
-  if(k==="entry" && ui.tool==="entry" && ui.draft && ui.draft.id!=null) ui.draft = null;  // "New entry" while editing starts a fresh one
-  ui.tool = (k===ui.tool && k!=="entry") ? null : k;
+  if(k==="entry" && ui.draft && ui.draft.id!=null) ui.draft = null;  // "New entry" never reopens an edit
+  ui.tool = k;
   ui.notice = null;
-  renderToolbar(); renderTool();
+  renderTool();
+  if(k) $("tool").scrollTop = 0;
 }
+function setTitle(t, tag){ $("toolTitle").textContent = t; $("toolTag").innerHTML = tag || ""; }
 function renderTool(){
-  const el = $("tool");
-  el.style.display = ui.tool ? "" : "none";
+  const open = !!ui.tool;
+  $("toolModal").classList.toggle("open", open);
+  document.body.classList.toggle("locked", open);
+  if(!open){ $("tool").innerHTML = ""; return; }
   if(ui.tool==="entry") renderEntry();
   else if(ui.tool==="journal") renderJournal();
   else if(ui.tool==="coa") renderCoA();
@@ -432,9 +487,13 @@ function acctOptions(sel){
 function renderEntry(){
   const d = ui.draft || (ui.draft = newDraft());
   const editing = d.id!=null;
-  let h = '<div class="headrow"><div class="head">' + (editing ? 'Edit journal entry #' + d.id : 'New journal entry') + '</div>'
-        + (editing ? '<span class="pill info">Editing</span>' : '') + '</div><div style="height:10px"></div>';
-  h += '<div class="fields entryhead">'
+  setTitle(editing ? 'Edit journal entry #' + d.id : 'New journal entry', editing ? '<span class="pill info">Editing</span>' : '');
+  if(!root.accounts.some(a => a.active)){
+    $("tool").innerHTML = '<div class="muted">Your chart of accounts is empty, so there is nothing to post to yet. Add the accounts you use first.</div>'
+      + '<div class="btnrow"><button class="primary" onclick="openTool(\'coa\')">Open chart of accounts</button></div>';
+    return;
+  }
+  let h = '<div class="fields entryhead">'
      + '<div><label>Date</label><input type="date" id="jeDate" value="' + esc(d.date) + '" oninput="ui.draft.date=this.value"></div>'
      + '<div><label>Ref / check #</label><input value="' + esc(d.ref) + '" oninput="ui.draft.ref=this.value"></div>'
      + '<div class="wide"><label>Memo</label><input value="' + esc(d.memo) + '" oninput="ui.draft.memo=this.value" placeholder="What happened"></div></div>';
@@ -493,7 +552,7 @@ function fillBalance(){
   renderEntry();
 }
 function clearDraft(){ ui.draft = newDraft(ui.draft && ui.draft.date); ui.notice = null; renderEntry(); }
-function cancelEdit(){ ui.draft = null; ui.notice = null; ui.tool = "journal"; renderToolbar(); renderTool(); }
+function cancelEdit(){ ui.draft = null; ui.notice = null; ui.tool = "journal"; renderTool(); }
 
 function postEntry(){
   const d = ui.draft, errs = [], lines = [];
@@ -519,7 +578,7 @@ function postEntry(){
   const saved = commit();
   let text = (i>=0 ? "Saved changes to entry #" : "Posted entry #") + rec.id + " — " + fmt$(tdr) + " on " + fmtD(rec.date) + ".";
   if(rec.date>ui.asOf) text += " It is dated after the statements' as-of date (" + fmtD(ui.asOf) + "), so it will not show below until you move that date.";
-  else if(rec.date.slice(0,4)!==ui.asOf.slice(0,4)) text += " It falls in " + rec.date.slice(0,4) + ", outside the year the statements are showing.";
+  else if(fyOf(rec.date)!==fyOf(ui.asOf)) text += " It falls in " + fyLabel(fyOf(rec.date)) + ", outside the fiscal year the statements are showing.";
   if(!saved) text += " Not saved to this browser — see the warning above.";
   ui.notice = {ok:saved, text};
   ui.draft = newDraft(rec.date);
@@ -531,8 +590,8 @@ function editEntry(id){
   ui.draft = {id:e.id, date:e.date, ref:e.ref, memo:e.memo,
               lines:e.lines.map(l => ({acct:String(l.acct), dr:plain(l.dr), cr:plain(l.cr)}))};
   ui.notice = null; ui.tool = "entry";
-  renderToolbar(); renderTool();
-  $("tool").scrollIntoView({behavior:"smooth", block:"start"});
+  renderTool();
+  $("tool").scrollTop = 0;
 }
 function deleteEntry(id){
   const e = root.entries.find(x => x.id===id);
@@ -542,17 +601,18 @@ function deleteEntry(id){
   ui.draft = null;
   ui.notice = {ok:saved, text:"Deleted entry #" + id + "." + (saved ? "" : " Not saved to this browser.")};
   ui.tool = "journal";
-  renderToolbar(); renderTool(); afterChange();
+  renderTool(); afterChange();
 }
 
 /* ---------- journal list ---------- */
 function yearSelect(val, handler){
   return '<select onchange="' + handler + '">' + ["all", ...yearList()].map(y =>
-    '<option value="' + y + '"' + (String(val)===String(y)?' selected':'') + '>' + (y==="all"?"All years":y) + '</option>').join("") + '</select>';
+    '<option value="' + y + '"' + (String(val)===String(y)?' selected':'') + '>' + (y==="all"?"All years":fyLabel(y)) + '</option>').join("") + '</select>';
 }
 function renderJournal(){
-  let h = '<div class="head">Journal</div><div class="row" style="margin-bottom:10px">'
-        + '<div style="width:140px"><label>Year</label>' + yearSelect(ui.jYear, "ui.jYear=this.value;renderJournalRows()") + '</div>'
+  setTitle("Journal");
+  let h = '<div class="row" style="margin-bottom:10px">'
+        + '<div style="width:140px"><label>Fiscal year</label>' + yearSelect(ui.jYear, "ui.jYear=this.value;renderJournalRows()") + '</div>'
         + '<div style="flex:1;min-width:200px"><label>Search memo, ref, account or amount</label><input value="' + esc(ui.jFilter) + '" oninput="ui.jFilter=this.value;renderJournalRows()"></div></div>'
         + noticeHtml() + '<div id="jRows"></div>';
   $("tool").innerHTML = h;
@@ -564,7 +624,7 @@ function entryText(e){
 const byDateDesc = (a,b) => b.date.localeCompare(a.date) || b.id-a.id;
 function renderJournalRows(){
   const q = ui.jFilter.trim().toLowerCase(), LIMIT = 250;
-  const list = root.entries.filter(e => (ui.jYear==="all" || e.date.slice(0,4)===String(ui.jYear)) && (!q || entryText(e).includes(q))).sort(byDateDesc);
+  const list = root.entries.filter(e => (ui.jYear==="all" || fyOf(e.date)===+ui.jYear) && (!q || entryText(e).includes(q))).sort(byDateDesc);
   if(!list.length){ $("jRows").innerHTML = '<div class="muted">' + (root.entries.length ? 'No entries match.' : 'No entries yet. Post one from New entry.') + '</div>'; return; }
   let h = '<div class="scroll"><table><thead><tr><th>Date</th><th>#</th><th>Ref</th><th>Memo</th><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th></th></tr></thead><tbody>';
   for(const e of list.slice(0,LIMIT)){
@@ -593,8 +653,8 @@ function renderCoA(){
   const f = ui.acctForm || (ui.acctForm = blankAcctForm());
   const use = usage(), pos = sums(null, ui.asOf);
   const editing = f.id!=null, used = editing && use.get(f.id);
-  let h = '<div class="headrow"><div class="head">Chart of accounts</div><span class="muted">Balances as of ' + fmtD(ui.asOf) + '</span></div><div style="height:10px"></div>';
-  h += '<div class="fields acctform">'
+  setTitle("Chart of accounts", '<span class="muted">Balances as of ' + gD(ui.asOf) + '</span>');
+  let h = '<div class="fields acctform">'
      + '<div><label>Number</label><input id="afNum" value="' + esc(f.num) + '" oninput="ui.acctForm.num=this.value" placeholder="6500"></div>'
      + '<div><label>Name</label><input id="afName" value="' + esc(f.name) + '" oninput="ui.acctForm.name=this.value" placeholder="Meals"></div>'
      + '<div><label>Type</label><select onchange="acctType(this.value)">' + TYPE_ORDER.map(t => '<option value="' + t + '"' + (t===f.type?' selected':'') + '>' + TYPES[t].label + '</option>').join("") + '</select></div>'
@@ -604,6 +664,7 @@ function renderCoA(){
   if(used) h += '<div class="hint" style="color:var(--amber)">This account is used in ' + used + ' entr' + (used===1?'y':'ies') + '. Changing its type or classification moves all of its history to the new place on every statement, prior years included.</div>';
   h += '<div class="msg" id="acctMsg">' + noticeHtml() + '</div>';
   h += '<div class="hint" style="margin-top:0;margin-bottom:6px">Classification decides where the account lands on the balance sheet and in the cash flow statement. Record depreciation against an <b>Accumulated depreciation</b> account, not the asset itself, or the cash flow statement will read it as a sale of equipment.</div>';
+  if(!root.accounts.length){ $("tool").innerHTML = h + '<div class="muted" style="margin-top:10px">No accounts yet. Add your first one above.</div>'; return; }
   h += '<div class="scroll"><table><thead><tr><th>Number</th><th>Name</th><th>Classification</th><th class="num">Balance</th><th class="num">Entries</th><th></th></tr></thead><tbody>';
   for(const t of TYPE_ORDER){
     const list = sortedAccts().filter(a => a.type===t);
@@ -675,9 +736,10 @@ function renderLedger(){
     const list = sortedAccts().filter(a => a.type===t);
     return list.length ? '<optgroup label="' + TYPES[t].plural + '">' + list.map(a => '<option value="' + a.id + '"' + (a.id===ui.ledgerAcct?' selected':'') + '>' + esc(acctLabel(a)) + '</option>').join("") + '</optgroup>' : '';
   }).join("");
-  let h = '<div class="head">General ledger</div><div class="row" style="margin-bottom:10px">'
+  setTitle("General ledger");
+  let h = '<div class="row" style="margin-bottom:10px">'
         + '<div style="flex:1;min-width:220px;max-width:420px"><label>Account</label><select onchange="ui.ledgerAcct=+this.value;renderLedgerRows()">' + opts + '</select></div>'
-        + '<div style="width:140px"><label>Year</label>' + yearSelect(ui.ledgerYear, "ui.ledgerYear=this.value;renderLedgerRows()") + '</div></div><div id="lRows"></div>';
+        + '<div style="width:140px"><label>Fiscal year</label>' + yearSelect(ui.ledgerYear, "ui.ledgerYear=this.value;renderLedgerRows()") + '</div></div><div id="lRows"></div>';
   $("tool").innerHTML = h;
   renderLedgerRows();
 }
@@ -689,16 +751,16 @@ function renderLedgerRows(){
   for(const e of root.entries) for(const l of e.lines) if(l.acct===a.id) rows.push({e, l});
   rows.sort((x,y) => x.e.date.localeCompare(y.e.date) || x.e.id-y.e.id);
   let bal = 0, h = '', prevYear = null, shown = 0, tdr = 0, tcr = 0;
-  // Income and expense accounts start every year at zero — last year's total now lives in retained earnings.
+  // Income and expense accounts start every fiscal year at zero — last year's total now lives in retained earnings.
   if(yr!=="all" && !is){
-    for(const r of rows) if(r.e.date.slice(0,4) < String(yr)) bal += sg*(r.l.dr-r.l.cr);
-    h += '<tr><td colspan="5" class="muted">Opening balance, Jan 1, ' + yr + '</td><td class="num">' + fmtA(bal) + '</td><td></td></tr>';
+    for(const r of rows) if(fyOf(r.e.date) < +yr) bal += sg*(r.l.dr-r.l.cr);
+    h += '<tr><td colspan="6" class="muted">Opening balance, ' + gD(fyStart(+yr)) + '</td><td class="num">' + fmtA(bal) + '</td></tr>';
   }
   for(const r of rows){
-    const y = r.e.date.slice(0,4);
-    if(yr!=="all" && y!==String(yr)) continue;
+    const y = fyOf(r.e.date);
+    if(yr!=="all" && y!==+yr) continue;
     if(is && y!==prevYear){
-      if(prevYear!==null) h += '<tr><td colspan="7" class="muted">Jan 1, ' + y + ' — ' + prevYear + ' closed to retained earnings; balance restarts at zero.</td></tr>';
+      if(prevYear!==null) h += '<tr><td colspan="7" class="muted">' + gD(fyStart(y)) + ' — ' + fyLabel(prevYear) + ' closed to retained earnings; balance restarts at zero.</td></tr>';
       bal = 0;
     }
     prevYear = y;
@@ -716,18 +778,23 @@ function renderLedgerRows(){
 /* ---------- settings & backup ---------- */
 function renderSettings(){
   const since = root.lastExport ? 'Last backup ' + fmtD(root.lastExport.slice(0,10)) + '.' : 'Never backed up.';
-  let h = '<div class="head">Settings & backup</div>'
-    + '<div class="split"><div><label>Company name</label><input value="' + esc(root.company) + '" onchange="root.company=this.value.trim();save();renderTop()" placeholder="Shown at the top of every statement"></div>'
-    + '<div><label>Fiscal year</label><input value="Calendar year — Jan 1 to Dec 31" disabled></div></div>'
+  setTitle("Settings & backup");
+  const M = fyM(), cur = fyOf(today());
+  let h = '<div class="split"><div><label>Company name</label><input value="' + esc(root.company) + '" onchange="root.company=this.value.trim();save();renderTop()" placeholder="Shown at the top of every statement"></div>'
+    + '<div><label>Fiscal year ends</label><select onchange="setFyEnd(this.value)">'
+    + MONTHS.map((n,i) => '<option value="' + (i+1) + '"' + (i+1===M?' selected':'') + '>End of ' + n + (i===11?' (calendar year)':'') + '</option>').join("") + '</select></div></div>'
+    + '<div class="hint">' + fyLabel(cur) + ' runs ' + gD(fyStart(cur)) + ' – ' + gD(fyEndDate(cur)) + '. Each fiscal year is named for the calendar year it ends in.'
+    + (M===2 ? ' A February year end falls on the 28th, or the 29th in leap years.' : '')
+    + (root.entries.length ? ' Changing it re-cuts every past year: retained earnings, the prior-year column and the P&amp;L all move to the new boundaries. No entries are changed.' : '') + '</div>'
     + '<div class="head" style="margin-top:18px">Backup</div>'
     + '<div class="muted">The books live in this browser only (local storage, key <code>' + KEY + '</code>). Clearing site data, or opening the page in another browser, shows empty books. ' + since
     + (root.changes ? ' <b style="color:var(--amber)">' + root.changes + ' change' + (root.changes===1?'':'s') + ' since.</b>' : '') + '</div>'
     + '<div class="btnrow"><button class="primary" onclick="exportFile()">Export backup (.json)</button><button onclick="$(\'impFile\').click()">Import backup…</button></div>'
     + noticeHtml();
-  if(!root.entries.length)
-    h += '<div class="head" style="margin-top:18px">Try it out</div><div class="muted">Loads two years of sample entries for a small service business, using the default chart of accounts. Erase them from here when you are done.</div>'
-       + '<div class="btnrow"><button onclick="loadDemo()">Load demo entries</button></div>';
-  h += '<details><summary>Danger zone</summary><div class="muted" style="margin-top:6px">Erases every entry and restores the default chart of accounts. Export first if there is anything you want to keep.</div>'
+  if(!root.entries.length && !root.accounts.length)
+    h += '<div class="head" style="margin-top:18px">Try it out</div><div class="muted">Loads a sample chart of accounts and two years of entries for a small service business. Use Erase all books below to clear them when you are done.</div>'
+       + '<div class="btnrow"><button onclick="loadDemo()">Load demo books</button></div>';
+  h += '<details><summary>Danger zone</summary><div class="muted" style="margin-top:6px">Erases every entry and every account, leaving the books empty. The company name and fiscal year end are kept. Export first if there is anything you want to keep.</div>'
      + '<div class="btnrow"><button class="danger" onclick="eraseAll()">Erase all books</button></div></details>';
   $("tool").innerHTML = h;
 }
@@ -766,17 +833,18 @@ function importFile(inp){
   rd.readAsText(file);
 }
 function eraseAll(){
-  if(!confirm("Erase every entry and reset the chart of accounts? This cannot be undone.")) return;
-  root = blank();
+  if(!confirm("Erase every entry and every account? This cannot be undone.")) return;
+  const keep = {company:root.company, fyEnd:root.fyEnd};
+  root = Object.assign(blank(), keep);
   const saved = save();
   ui.draft = null; ui.acctForm = null; ui.ledgerAcct = null;
   ui.notice = {ok:saved, text:"Books erased."};
   render();
 }
 function loadDemo(){
-  if(root.entries.length) return;
-  root.accounts = blank().accounts;
-  root.seq = root.accounts.length + 1;
+  if(root.entries.length || root.accounts.length) return;
+  root.seq = 1;
+  root.accounts = demoAccounts(root);
   const Y = +today().slice(0,4), P = Y-1;
   const A = n => root.accounts.find(a => a.num===n).id;
   const D = [
@@ -813,26 +881,34 @@ function setAsOf(v){
   renderReportsHead(); renderReports();
   if(ui.tool==="coa") renderCoA();
 }
+function setFyEnd(v){
+  root.fyEnd = +v;
+  commit();
+  ui.jYear = "all"; ui.ledgerYear = "all";   // old fiscal-year filters no longer mean the same dates
+  renderSettings(); renderReportsHead(); renderReports();
+}
 function renderReportsHead(){
-  const D = ui.asOf, Y = D.slice(0,4);
+  const D = ui.asOf, fy = fyOf(D), from = fyStart(fy);
   $("asOf").value = D;
-  $("rperiod").innerHTML = 'Balance sheet at ' + fmtD(D) + '<span class="vbar">|</span>income and cash flow for ' + Y + ' to date, Jan 1 – ' + fmtD(D).replace(/,\s*\d{4}$/,"") + ' · calendar fiscal year';
-  const cy = +today().slice(0,4);
-  let h = '<button class="small' + (D===today()?' on':'') + '" onclick="setAsOf(\'' + today() + '\')">Today</button>';
-  for(const y of yearList().filter(y => y<cy).slice(0,4))
-    h += '<button class="small' + (D===y+"-12-31"?' on':'') + '" onclick="setAsOf(\'' + y + '-12-31\')" title="Year ended Dec 31, ' + y + '">FY ' + y + '</button>';
+  $("rperiod").innerHTML = 'Balance sheet at ' + gD(D) + '<span class="vbar">|</span>income and cash flow for ' + fyLabel(fy) + ' to date, '
+    + gD(from) + ' – ' + gD(D) + ' · fiscal year ends ' + MONTHS[fyM()-1].slice(0,3) + ' ' + lastDay(fy, fyM()) + (fyM()===12 ? ' (calendar year)' : '');
+  const cur = fyOf(today());
+  let h = '<button class="' + (D===today()?'on':'') + '" onclick="setAsOf(\'' + today() + '\')">Today</button>';
+  for(const y of yearList().filter(y => y<cur).slice(0,4))
+    h += '<button class="' + (D===fyEndDate(y)?'on':'') + '" onclick="setAsOf(\'' + fyEndDate(y) + '\')" title="Year ended ' + fmtD(fyEndDate(y)) + '">' + fyLabel(y) + '</button>';
   $("yeBtns").innerHTML = h;
 }
 
 const tr = (cls, label, vals, numCls) => '<tr class="' + cls + '"><td>' + label + '</td>' + vals.map(v => '<td class="num' + (numCls ? ' ' + numCls(v) : '') + '">' + fmtA(v) + '</td>').join("") + '</tr>';
 const signCls = v => v>0 ? "pos" : v<0 ? "neg" : "";
-function lines(filter, value, ncol){
+const negCls = v => v<0 ? "neg" : "";
+function lines(filter, value, ncol, numCls){
   const out = [], tot = new Array(ncol).fill(0);
   for(const a of sortedAccts().filter(filter)){
     const v = value(a);
     if(v.every(x => x===0)) continue;
     v.forEach((x,i) => tot[i] += x);
-    out.push(tr("ac", esc(a.name), v));
+    out.push(tr("ac", esc(a.name), v, numCls));
   }
   return {html:out.join(""), tot, n:out.length};
 }
@@ -845,7 +921,7 @@ function balanceSheet(D, PE){
   const c = positionAt(D), p = positionAt(PE);
   const v = sg => a => [sg*(c.cum.get(a.id)||0), sg*(p.cum.get(a.id)||0)];
   const of = (type, subs) => a => a.type===type && subs.includes(a.sub);
-  let b = '<thead><tr><th></th><th class="num">' + fmtD(D) + '</th><th class="num">' + fmtD(PE) + '</th></tr></thead><tbody>';
+  let b = '<thead><tr><th></th><th class="num dt">' + fmtD(D) + '</th><th class="num dt">' + fmtD(PE) + '</th></tr></thead><tbody>';
 
   const group = (label, sec, subLabel) => {
     if(!sec.n) return {h:'', tot:[0,0]};
@@ -865,21 +941,21 @@ function balanceSheet(D, PE){
   b += '<tr class="sec"><td colspan="3">Liabilities</td></tr>' + cl.h + ll.h + ((cl.h && ll.h) ? tr("sub", "Total liabilities", TL) : '');
   if(!cl.h && !ll.h) b += tr("ac", "No liabilities", [0,0]);
 
-  const eq = lines(of("equity",["contrib","draws"]), v(-1), 2);
+  const eq = lines(of("equity",["contrib","draws"]), v(-1), 2, negCls);
   const reAccts = root.accounts.filter(of("equity",["re"]));
   const reBal = pos => reAccts.reduce((t,a) => t - (pos.cum.get(a.id)||0), 0);
   const RE = [reBal(c) + c.prior, reBal(p) + p.prior], NI = [c.ni, p.ni];
   const TE = [eq.tot[0]+RE[0]+NI[0], eq.tot[1]+RE[1]+NI[1]];
   b += '<tr class="sec"><td colspan="3">Equity</td></tr>' + eq.html
-     + tr("ac", "Retained earnings", RE) + tr("ac", "Net income, current year", NI) + tr("sub", "Total equity", TE);
+     + tr("ac", "Retained earnings", RE, negCls) + tr("ac", "Net income, current year", NI, negCls) + tr("sub", "Total equity", TE, negCls);
   const TLE = [TL[0]+TE[0], TL[1]+TE[1]];
   b += tr("tot", "Total liabilities &amp; equity", TLE) + '</tbody>';
 
   const off = TA[0]-TLE[0], offP = TA[1]-TLE[1];
   const pill = off===0 && offP===0 ? '<span class="pill good">Balances</span>'
              : '<span class="pill bad">Out by ' + fmt$(Math.abs(off||offP)) + '</span>';
-  return stmtCard("Balance sheet", "At " + fmtD(D) + ", with the prior year end for comparison", pill, b,
-    "Net income rolls into retained earnings at each Dec 31 automatically — do not post a closing entry, or that year's income statement will read zero.");
+  return stmtCard("Balance sheet", "At " + gD(D) + ", with the prior fiscal year end for comparison", pill, b,
+    "Net income rolls into retained earnings at each fiscal year end automatically — do not post a closing entry, or that year's income statement will read zero.");
 }
 
 function incomeStatement(from, to){
@@ -893,14 +969,14 @@ function incomeStatement(from, to){
   const oe = lines(of("expense","other"), a => [-(m.get(a.id)||0)], 1);  // shown as a deduction inside "other"
   const GP = rev.tot[0] - cogs.tot[0], OP = GP - opx.tot[0], OTH = oi.tot[0] + oe.tot[0], NI = OP + OTH;
 
-  let b = '<tbody><tr class="sec"><td colspan="2">Revenue</td></tr>' + (rev.n ? rev.html : tr("ac","No revenue",[0])) + tr("sub", "Total revenue", rev.tot);
-  if(cogs.n) b += '<tr class="sec"><td colspan="2">Cost of goods sold</td></tr>' + cogs.html + tr("sub", "Gross profit", [GP]);
-  b += '<tr class="sec"><td colspan="2">Operating expenses</td></tr>' + (opx.n ? opx.html : tr("ac","No operating expenses",[0])) + tr("sub", "Total operating expenses", opx.tot)
-     + '<tr class="gap"><td colspan="2"></td></tr>' + tr("sub", "Operating income", [OP]);
-  if(oi.n || oe.n) b += '<tr class="sec"><td colspan="2">Other income (expense)</td></tr>' + oi.html + oe.html + tr("sub", "Net other income (expense)", [OTH]);
+  let b = '<tbody><tr class="sec"><td colspan="2">Revenue</td></tr>' + (rev.n ? rev.html : tr("ac","No revenue",[0])) + tr("sub", "Total revenue", rev.tot, negCls);
+  if(cogs.n) b += '<tr class="sec"><td colspan="2">Cost of goods sold</td></tr>' + cogs.html + tr("sub", "Gross profit", [GP], negCls);
+  b += '<tr class="sec"><td colspan="2">Operating expenses</td></tr>' + (opx.n ? opx.html : tr("ac","No operating expenses",[0])) + tr("sub", "Total operating expenses", opx.tot, negCls)
+     + '<tr class="gap"><td colspan="2"></td></tr>' + tr("sub", "Operating income", [OP], negCls);
+  if(oi.n || oe.n) b += '<tr class="sec"><td colspan="2">Other income (expense)</td></tr>' + oi.html + oe.html + tr("sub", "Net other income (expense)", [OTH], negCls);
   b += tr("tot", "Net income", [NI], signCls) + '</tbody>';
   const margin = rev.tot[0] ? ' · <span style="font-family:var(--mono)">' + (NI/rev.tot[0]*100).toFixed(1) + '%</span> of revenue' : '';
-  return {html: stmtCard("Profit &amp; loss", fmtD(from) + " – " + fmtD(to) + margin, "", b), NI};
+  return {html: stmtCard("Profit &amp; loss", fyLabel(fyOf(to)) + " to date, " + gD(from) + " – " + gD(to) + margin, "", b), NI};
 }
 
 function cashFlow(from, to, PE){
@@ -917,30 +993,32 @@ function cashFlow(from, to, PE){
   const OPS = NI + adj.tot[0] + wc.tot[0], NET = OPS + inv.tot[0] + fin.tot[0];
   const begin = cashAt(PE), end = cashAt(to);
 
-  let b = '<tbody><tr class="sec"><td colspan="2">Operating activities</td></tr>' + tr("ac", "Net income", [NI]);
+  let b = '<tbody><tr class="sec"><td colspan="2">Operating activities</td></tr>' + tr("ac", "Net income", [NI], negCls);
   if(adj.n) b += '<tr class="grp"><td colspan="2">Non-cash adjustments</td></tr>' + adj.html.replace(/<td>([^<]*)<\/td>/g, '<td>Depreciation — $1</td>');
   if(wc.n) b += '<tr class="grp"><td colspan="2">Changes in working capital</td></tr>' + wc.html;
-  b += tr("sub", "Net cash from operating", [OPS]);
-  b += '<tr class="sec"><td colspan="2">Investing activities</td></tr>' + (inv.n ? inv.html : tr("ac","None",[0])) + tr("sub", "Net cash from investing", inv.tot);
-  b += '<tr class="sec"><td colspan="2">Financing activities</td></tr>' + (fin.n ? fin.html : tr("ac","None",[0])) + tr("sub", "Net cash from financing", fin.tot);
+  b += tr("sub", "Net cash from operating", [OPS], negCls);
+  b += '<tr class="sec"><td colspan="2">Investing activities</td></tr>' + (inv.n ? inv.html : tr("ac","None",[0])) + tr("sub", "Net cash from investing", inv.tot, negCls);
+  b += '<tr class="sec"><td colspan="2">Financing activities</td></tr>' + (fin.n ? fin.html : tr("ac","None",[0])) + tr("sub", "Net cash from financing", fin.tot, negCls);
   b += '<tr class="gap"><td colspan="2"></td></tr>' + tr("sub", "Net change in cash", [NET], signCls)
-     + tr("ac", "Cash at " + fmtD(PE), [begin]) + tr("tot", "Cash at " + fmtD(to), [begin+NET]) + '</tbody>';
+     + tr("ac", "Cash at " + gD(PE), [begin], negCls) + tr("tot", "Cash at " + gD(to), [begin+NET], negCls) + '</tbody>';
   const ties = begin + NET === end;
   const pill = ties ? '<span class="pill good">Ties to cash</span>' : '<span class="pill bad">Off by ' + fmt$(Math.abs(begin+NET-end)) + '</span>';
-  return stmtCard("Cash flow", "Indirect method, " + fmtD(from) + " – " + fmtD(to), pill, b,
+  return stmtCard("Cash flow", "Indirect method, " + gD(from) + " – " + gD(to), pill, b,
     "Built from the change in each balance-sheet account. Asset sales and the current portion of long-term debt are not split out.");
 }
 
 function renderReports(){
-  const D = ui.asOf, Y = +D.slice(0,4), from = Y + "-01-01", PE = (Y-1) + "-12-31";
+  const D = ui.asOf, fy = fyOf(D), from = fyStart(fy), PE = fyEndDate(fy-1);
   if(!root.entries.length){
-    $("stmts").innerHTML = '<div class="card empty" style="grid-column:1/-1"><div class="muted">No entries yet. Post a journal entry above — or load the demo from Settings &amp; backup — and the balance sheet, P&amp;L and cash flow will build here.</div></div>';
+    $("stmts").innerHTML = '<div class="card empty" style="grid-column:1/-1"><div class="muted">No entries yet. Set up your chart of accounts and post a journal entry — or load the demo from Settings &amp; backup — and the balance sheet, P&amp;L and cash flow will build here.</div></div>';
     return;
   }
   $("stmts").innerHTML = balanceSheet(D, PE) + incomeStatement(from, D).html + cashFlow(from, D, PE);
 }
 
 function render(){ renderTop(); renderBanners(); renderToolbar(); renderTool(); renderReportsHead(); renderReports(); }
+
+document.addEventListener("keydown", e => { if(e.key==="Escape" && ui.tool) openTool(null); });
 
 root = load();
 render();

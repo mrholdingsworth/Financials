@@ -5,9 +5,8 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 
 ## To do
 
-- **Deploy.** Needs a new public repo on the `mrholdingsworth` account (the same one as Cal) with
-  Pages turned on. `gh` isn't installed, so the repo has to be created in the GitHub web UI first.
-  Keep `.nojekyll` alongside `index.html`.
+- Nothing open. Live at https://mrholdingsworth.github.io/Financials/ (repo
+  `mrholdingsworth/Financials`, Pages from `main` / root). The path is case-sensitive.
 
 ## Ideas, not started
 
@@ -36,5 +35,21 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   exactly by construction. The "Ties to cash" pill would only fail on imported unbalanced entries.
 - **Accounts used in entries can't be deleted**, only deactivated. Deactivating hides the account
   from the entry picker; history is unaffected.
-- **Reports default to as-of today**, covering the calendar year to date. There are quick buttons
-  for prior year ends.
+- **Reports default to as-of today**, covering the fiscal year to date. There are quick buttons for
+  prior fiscal year ends.
+- **Tools open as modals** over a blurred page, and close with ×, Esc or a backdrop click. The
+  entry draft survives closing, so a stray click loses nothing. (Pass 1, item 1.)
+- **The chart of accounts starts empty.** The sample chart now ships only with the demo, which is
+  offered only when the books are completely empty. Erase all books clears accounts too, but keeps
+  the company name and fiscal year end. (Pass 1, item 2.)
+- **The fiscal year end is a month** (`root.fyEnd`, 1–12, default 12). The year always ends on that
+  month's last day, which comes from `new Date(y, m, 0)`, so a February year end is the 28th or 29th
+  by the calendar. A fiscal year is named for the calendar year it ends in. All boundary math is
+  done on YYYY-MM-DD strings, so there are no time zone or DST shifts. `validDate()` rejects dates
+  that don't exist (2027-02-29, 2026-04-31), including on import. Tested: 2000/2028 leap,
+  2100/2027 not, an entry on 2028-02-29 lands in FY2028 and 2028-03-01 starts FY2029. We chose
+  "last day of month" over an arbitrary day, so a Feb 28 year end never has to guess about leap years.
+  (Pass 1, item 3.)
+- **Red for negatives:** on each cash flow section subtotal, every P&L subtotal, and every equity
+  line (draws are naturally red). Line items elsewhere stay neutral. Positive net income stays green,
+  and other positive grand totals stay gold. (Pass 1, item 6.)
