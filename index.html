@@ -1,0 +1,949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Books</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0b0e13; --panel:#11161f; --panel2:#151b26; --line:#212a38; --line2:#2c3646;
+  --tx:#e6ebf2; --sub:#9aa6b8; --mut:#697588;
+  --blue:#4d9fff; --bluebg:rgba(77,159,255,.10);
+  --gold:#b08d3f;
+  --green:#2fd583; --greenbg:rgba(47,213,131,.10);
+  --red:#f4655f;   --redbg:rgba(244,101,95,.10);
+  --amber:#f0a832; --amberbg:rgba(240,168,50,.10);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--tx);font-family:var(--sans);font-size:14px;line-height:1.5;
+     -webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:22px 18px 80px}
+a{color:var(--blue)}
+h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.01em}
+
+/* --- surfaces --- */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 20px;margin-bottom:14px}
+.head{font-size:10.5px;font-weight:700;color:var(--sub);text-transform:uppercase;letter-spacing:.1em;margin-bottom:10px}
+.muted{color:var(--mut);font-size:12px}
+.hint{font-size:11.5px;color:var(--mut);margin-top:6px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+.scroll{overflow-x:auto}
+.pos{color:var(--green)} .neg{color:var(--red)}
+
+/* --- controls --- */
+label,.lbl{display:block;font-size:10px;font-weight:700;color:var(--mut);text-transform:uppercase;
+           letter-spacing:.08em;margin-bottom:4px}
+input,select,textarea{background:var(--panel2);border:1px solid var(--line2);color:var(--tx);border-radius:8px;
+  padding:7px 10px;font:inherit;font-size:13px;width:100%;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--blue)}
+textarea{resize:vertical;min-height:64px}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input[type=number]{-moz-appearance:textfield}
+button{background:var(--panel2);border:1px solid var(--line2);color:var(--tx);border-radius:8px;
+  padding:7px 13px;font:inherit;font-size:13px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--blue);color:#fff}
+button:disabled{opacity:.4;cursor:not-allowed}
+button:disabled:hover{border-color:var(--line2);color:var(--tx)}
+button.primary{background:var(--blue);border-color:var(--blue);color:#04101f;font-weight:600}
+button.primary:hover{background:#69b0ff;color:#04101f}
+button.danger{color:var(--red);border-color:rgba(244,101,95,.35)}
+button.danger:hover{background:var(--redbg);border-color:var(--red)}
+button.warn{color:var(--amber);border-color:rgba(240,168,50,.55)}
+button.warn:hover{background:var(--amberbg);border-color:var(--amber);color:var(--amber)}
+button.small{padding:4px 10px;font-size:12px}
+.err{color:var(--red);font-size:12px;margin-top:5px}
+.okmsg{color:var(--green);font-size:12px;margin-top:5px}
+
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(136px,1fr));gap:10px}
+.fields>div{display:flex;flex-direction:column}
+.fields>div>label{margin-top:auto}
+
+/* --- pills, banners --- */
+.pill{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.05em;padding:2px 9px;
+      border-radius:999px;text-transform:uppercase}
+.pill.good{background:var(--greenbg);color:var(--green);border:1px solid rgba(47,213,131,.3)}
+.pill.bad{background:var(--redbg);color:var(--red);border:1px solid rgba(244,101,95,.3)}
+.pill.info{background:var(--bluebg);color:var(--blue);border:1px solid rgba(77,159,255,.3)}
+.pill.warn{background:var(--amberbg);color:var(--amber);border:1px solid rgba(240,168,50,.3)}
+.banner{border-radius:10px;padding:10px 14px;margin-bottom:12px;font-weight:600;font-size:13px}
+.banner.red{background:var(--redbg);border:1px solid rgba(244,101,95,.4);color:var(--red)}
+.banner.amber{background:var(--amberbg);border:1px solid rgba(240,168,50,.4);color:var(--amber)}
+
+/* --- tables --- */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;font-size:9.5px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;
+   padding:6px 8px;border-bottom:1px solid var(--line2);white-space:nowrap}
+td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.num,th.num{text-align:right;font-family:var(--mono)}
+
+details{border-top:1px solid var(--line);padding-top:9px;margin-top:9px}
+details summary{cursor:pointer;font-size:12.5px;color:var(--sub);font-weight:600;list-style:none}
+details summary::-webkit-details-marker{display:none}
+details summary::before{content:"\25B8  ";color:var(--mut)}
+details[open] summary::before{content:"\25BE  "}
+
+.vbar{color:var(--gold);font-weight:700;padding:0 6px}
+
+.split{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:660px){.split{grid-template-columns:1fr}.wrap{padding:16px 12px 60px}}
+
+/* --- this app --- */
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.brand{display:flex;align-items:baseline;flex-wrap:wrap}
+.word{font-size:26px;font-weight:700;letter-spacing:-.02em}
+.coname{font-size:15px;color:var(--sub)}
+.topstat{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+button.on{background:var(--bluebg);border-color:var(--blue);color:var(--blue)}
+button.on.primary{background:var(--blue);color:#04101f}
+button.link{background:none;border:none;padding:0;color:var(--blue);font-size:12px}
+button.link:hover{text-decoration:underline;color:var(--blue)}
+.headrow{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.headrow .head{margin-bottom:0}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.entryhead{grid-template-columns:160px 150px minmax(0,1fr)}
+@media(max-width:660px){.entryhead{grid-template-columns:1fr 1fr}.entryhead .wide{grid-column:1/-1}}
+.acctform{grid-template-columns:110px minmax(0,1.4fr) 130px minmax(0,1.2fr) auto}
+.acctform>div.go{justify-content:flex-end}
+@media(max-width:860px){.acctform{grid-template-columns:repeat(auto-fit,minmax(136px,1fr))}}
+table.lines td{border-bottom:none;padding:3px 4px}
+table.lines input,table.lines select{padding:6px 8px}
+input.num{text-align:right;font-family:var(--mono)}
+td.act{text-align:right;white-space:nowrap}
+tr.grp td{border-top:1px solid var(--line2)}
+tr.secrow td{padding-top:14px;font-size:9.5px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid var(--line2)}
+tr.inactive td{color:var(--mut)}
+.dr{color:var(--tx)} .cr{padding-left:18px;color:var(--sub)}
+.msg{min-height:20px}
+
+.rhead{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.rhead h2{font-size:18px}
+.rctl{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.rctl input{width:160px}
+.stmts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:14px;align-items:start}
+.stmts .card{margin-bottom:0}
+.shead{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.shead h3{font-size:15px}
+.period{font-size:11.5px;color:var(--mut);margin-bottom:8px}
+.stmt td{border-bottom:none;padding:3px 6px}
+.stmt th{padding:4px 6px}
+.stmt td.num{white-space:nowrap;width:1%}
+.stmt tr.sec td{padding-top:13px;font-size:9.5px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.08em}
+.stmt tr.grp td{border-top:none;padding-top:7px;color:var(--sub);font-weight:600;font-size:12px}
+.stmt tr.ac td:first-child{padding-left:16px;color:var(--sub)}
+.stmt tr.sub td{border-top:1px solid var(--line);font-weight:600}
+.stmt tr.sub td:first-child{padding-left:10px}
+.stmt tr.tot td{border-top:1px solid var(--line2);border-bottom:3px double var(--line2);font-weight:700;padding-top:6px;padding-bottom:6px}
+.stmt tr.tot td.num{color:var(--gold)}
+.stmt tr.tot td.num.pos{color:var(--green)} .stmt tr.tot td.num.neg{color:var(--red)}
+.stmt tr.gap td{padding:5px}
+.empty{padding:26px 20px;text-align:center}
+
+@media print{
+  :root{color-scheme:light;--bg:#fff;--panel:#fff;--panel2:#fff;--tx:#000;--sub:#222;--mut:#555;
+        --line:#ccc;--line2:#888;--gold:#000;--green:#000;--red:#000}
+  .no-print{display:none!important}
+  .wrap{padding:0}
+  .stmts{display:block}
+  .stmts .card{break-inside:avoid;margin-bottom:18px;border:none;padding:0}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand"><span class="word">Books</span><span class="vbar">|</span><span class="coname" id="coName"></span></div>
+    <div class="topstat no-print" id="topStat"></div>
+  </header>
+  <div id="banners" class="no-print"></div>
+
+  <nav class="toolbar no-print" id="toolbar"></nav>
+  <section class="card no-print" id="tool"></section>
+
+  <section class="card" id="rhead">
+    <div class="rhead">
+      <div>
+        <h2>Financial statements</h2>
+        <div class="muted" id="rperiod"></div>
+      </div>
+      <div class="rctl no-print">
+        <div><label for="asOf">As of</label><input type="date" id="asOf" onchange="setAsOf(this.value)"></div>
+        <div class="row" id="yeBtns"></div>
+        <button onclick="window.print()">Print</button>
+      </div>
+    </div>
+  </section>
+  <section class="stmts" id="stmts"></section>
+</div>
+
+<input type="file" id="impFile" accept=".json,application/json" style="display:none" onchange="importFile(this)">
+
+<script>
+"use strict";
+const KEY = "books.v1";
+const LEGACY_KEYS = [];
+const SCHEMA = 1;
+
+// The subtype is what places an account on the statements: its balance-sheet section and its
+// cash-flow bucket both follow from it, so an account never has to be classified twice.
+const TYPES = {
+  asset:    {label:"Asset",     plural:"Assets",      subs:{cash:"Cash & equivalents", current:"Current asset", fixed:"Fixed asset", contra:"Accumulated depreciation", other:"Other asset"}},
+  liability:{label:"Liability", plural:"Liabilities", subs:{current:"Current liability", longterm:"Long-term liability"}},
+  equity:   {label:"Equity",    plural:"Equity",      subs:{contrib:"Owner capital / contributions", draws:"Owner draws / distributions", re:"Retained earnings"}},
+  revenue:  {label:"Revenue",   plural:"Revenue",     subs:{operating:"Operating revenue", other:"Other income"}},
+  expense:  {label:"Expense",   plural:"Expenses",    subs:{cogs:"Cost of goods sold", operating:"Operating expense", other:"Other expense"}}
+};
+const TYPE_ORDER = ["asset","liability","equity","revenue","expense"];
+
+const DEFAULT_COA = [
+  ["1000","Checking","asset","cash"],
+  ["1010","Savings","asset","cash"],
+  ["1100","Accounts Receivable","asset","current"],
+  ["1200","Inventory","asset","current"],
+  ["1300","Prepaid Expenses","asset","current"],
+  ["1500","Equipment","asset","fixed"],
+  ["1510","Vehicles","asset","fixed"],
+  ["1590","Accumulated Depreciation","asset","contra"],
+  ["1800","Security Deposits","asset","other"],
+  ["2000","Accounts Payable","liability","current"],
+  ["2100","Credit Card","liability","current"],
+  ["2200","Accrued Liabilities","liability","current"],
+  ["2300","Sales Tax Payable","liability","current"],
+  ["2500","Loan Payable","liability","longterm"],
+  ["3000","Owner's Capital","equity","contrib"],
+  ["3100","Owner's Draws","equity","draws"],
+  ["3900","Retained Earnings","equity","re"],
+  ["4000","Sales","revenue","operating"],
+  ["4100","Service Revenue","revenue","operating"],
+  ["4900","Interest Income","revenue","other"],
+  ["5000","Cost of Goods Sold","expense","cogs"],
+  ["6000","Advertising","expense","operating"],
+  ["6050","Bank Fees","expense","operating"],
+  ["6100","Depreciation Expense","expense","operating"],
+  ["6150","Insurance","expense","operating"],
+  ["6200","Office Supplies","expense","operating"],
+  ["6250","Professional Fees","expense","operating"],
+  ["6300","Rent","expense","operating"],
+  ["6350","Software & Subscriptions","expense","operating"],
+  ["6400","Utilities","expense","operating"],
+  ["6450","Wages","expense","operating"],
+  ["7000","Interest Expense","expense","other"]
+];
+
+/* ---------- formatting ---------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// Amounts are stored as integer cents so a year of postings cannot drift by a float penny.
+const money = c => (c/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt$ = c => (c<0?"-":"") + "$" + money(Math.abs(c));
+// Statement convention: negatives in parentheses, zero as a dash.
+const fmtA = c => c===0 ? "—" : (c<0 ? "(" + money(-c) + ")" : money(c));
+const plain = c => c ? (c/100).toFixed(2) : "";
+function toCents(s){
+  s = String(s==null?"":s).replace(/[$,\s]/g,"");
+  if(s==="") return 0;
+  const m = s.match(/^(\d*)(?:\.(\d*))?$/);
+  if(!m || (m[1]==="" && !m[2])) return NaN;
+  if((m[2]||"").length > 2) return NaN;
+  return parseInt(m[1]||"0",10)*100 + parseInt(((m[2]||"")+"00").slice(0,2),10);
+}
+function today(){
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0");
+}
+const validDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s||"");
+const fmtD = s => new Date(s+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+
+/* ---------- state ---------- */
+let root, saveOk = true, loadNote = null;
+const ui = {tool:"entry", asOf:today(), draft:null, acctForm:null, ledgerAcct:null, ledgerYear:"all",
+            jYear:"all", jFilter:"", notice:null};
+
+function blank(){
+  const r = {schema:SCHEMA, company:"", seq:1, changes:0, lastExport:null, accounts:[], entries:[]};
+  for(const [num,name,type,sub] of DEFAULT_COA) r.accounts.push({id:r.seq++, num, name, type, sub, active:true});
+  return r;
+}
+
+// Backfills every field added since v1, so old saves open without versioned migrations.
+function normalize(r){
+  if(!r || typeof r!=="object") return blank();
+  if(!Array.isArray(r.accounts)) r.accounts = blank().accounts;
+  if(!Array.isArray(r.entries)) r.entries = [];
+  r.schema = SCHEMA;
+  r.company = String(r.company||"");
+  r.changes = +r.changes || 0;
+  if(r.lastExport===undefined) r.lastExport = null;
+  let max = 0;
+  r.accounts = r.accounts.filter(a => a && TYPES[a.type]).map(a => {
+    const sub = TYPES[a.type].subs[a.sub] ? a.sub : Object.keys(TYPES[a.type].subs)[0];
+    max = Math.max(max, +a.id||0);
+    return {id:+a.id, num:String(a.num||""), name:String(a.name||""), type:a.type, sub, active:a.active!==false};
+  });
+  r.entries = r.entries.filter(e => e && validDate(e.date) && Array.isArray(e.lines)).map(e => {
+    max = Math.max(max, +e.id||0);
+    return {id:+e.id, date:e.date, ref:String(e.ref||""), memo:String(e.memo||""),
+            lines:e.lines.map(l => ({acct:+l.acct, dr:Math.max(0,Math.round(+l.dr||0)), cr:Math.max(0,Math.round(+l.cr||0))}))};
+  });
+  r.seq = Math.max(+r.seq||1, max+1);
+  return r;
+}
+
+function load(){
+  try{
+    let raw = localStorage.getItem(KEY);
+    if(raw==null){
+      for(const k of LEGACY_KEYS){
+        const old = localStorage.getItem(k);
+        if(old!=null){ raw = old; loadNote = "Carried your books over from an older version of this page. The old copy is left in place as a fallback."; break; }
+      }
+    }
+    return raw==null ? blank() : normalize(JSON.parse(raw));
+  }catch(e){
+    saveOk = false;
+    return blank();
+  }
+}
+
+// Returns whether the write landed. A silent failure would leave the screen right and the disk empty.
+function save(){
+  try{
+    localStorage.setItem(KEY, JSON.stringify(root));
+    saveOk = true;
+  }catch(e){
+    saveOk = false;
+  }
+  renderBanners();
+  return saveOk;
+}
+function commit(){ root.changes++; return save(); }
+
+/* ---------- accounts ---------- */
+const acctById = id => root.accounts.find(a => a.id===id);
+const sortedAccts = () => root.accounts.slice().sort((a,b) => a.num.localeCompare(b.num,undefined,{numeric:true}) || a.name.localeCompare(b.name));
+const acctLabel = a => a ? a.num + " · " + a.name : "(missing account)";
+const isIS = a => a.type==="revenue" || a.type==="expense";
+// The sign that makes an account's balance read positive when it is doing its normal job.
+function normalSign(a){
+  if(a.type==="asset") return a.sub==="contra" ? -1 : 1;
+  if(a.type==="expense") return 1;
+  if(a.type==="equity" && a.sub==="draws") return 1;
+  return -1;
+}
+function usage(){
+  const m = new Map();
+  for(const e of root.entries) for(const id of new Set(e.lines.map(l => l.acct))) m.set(id,(m.get(id)||0)+1);
+  return m;
+}
+
+/* ---------- ledger math ---------- */
+// Debit-minus-credit per account over [from, to]; from may be null for "since the beginning".
+function sums(from, to){
+  const m = new Map();
+  for(const e of root.entries){
+    if((from && e.date<from) || e.date>to) continue;
+    for(const l of e.lines) m.set(l.acct, (m.get(l.acct)||0) + l.dr - l.cr);
+  }
+  return m;
+}
+function netIncome(m){
+  let t = 0;
+  for(const a of root.accounts) if(isIS(a)) t -= (m.get(a.id)||0);
+  return t;
+}
+// The year closes itself: income before Jan 1 of D's year is retained earnings, income since is
+// current-year net income. No closing entry is ever posted, so none can be forgotten or doubled.
+function positionAt(D){
+  const cum = sums(null, D), ytd = sums(D.slice(0,4)+"-01-01", D);
+  const ni = netIncome(ytd);
+  return {cum, ni, prior: netIncome(cum) - ni};
+}
+function yearList(){
+  const ys = new Set([+today().slice(0,4)]);
+  for(const e of root.entries) ys.add(+e.date.slice(0,4));
+  return [...ys].sort((a,b) => b-a);
+}
+function entryTotal(e){ return e.lines.reduce((t,l) => t+l.dr, 0); }
+function unbalanced(){ return root.entries.filter(e => e.lines.reduce((t,l) => t+l.dr-l.cr, 0)!==0); }
+
+/* ---------- top ---------- */
+function renderTop(){
+  $("coName").textContent = root.company || "Untitled company";
+  document.title = root.company ? root.company + " — Books" : "Books";
+  let h = '<span class="muted">' + root.entries.length + ' entr' + (root.entries.length===1?'y':'ies') + ' · ' + root.accounts.length + ' accounts</span>';
+  if(root.changes>0 && root.entries.length)
+    h += '<button class="link" onclick="openTool(\'settings\')">' + root.changes + ' change' + (root.changes===1?'':'s') + ' since last backup</button>';
+  $("topStat").innerHTML = h;
+}
+function renderBanners(){
+  let h = "";
+  if(!saveOk) h += '<div class="banner red">Not saved — this browser refused to store the books (a private window, or site storage is blocked). Changes last only until this tab closes. Export a backup from Settings before you leave.</div>';
+  const bad = root ? unbalanced() : [];
+  if(bad.length) h += '<div class="banner red">' + bad.length + ' entr' + (bad.length===1?'y does':'ies do') + ' not balance (#' + bad.map(e => e.id).join(", #") + '). The statements will be out by the same amount until ' + (bad.length===1?'it is':'they are') + ' fixed.</div>';
+  if(loadNote) h += '<div class="banner amber">' + esc(loadNote) + '</div>';
+  $("banners").innerHTML = h;
+}
+
+const TOOLS = [["entry","New entry"],["journal","Journal"],["coa","Chart of accounts"],["ledger","Ledger"],["settings","Settings & backup"]];
+function renderToolbar(){
+  $("toolbar").innerHTML = TOOLS.map(([k,l]) =>
+    '<button class="' + (k==="entry"?'primary ':'') + (ui.tool===k?'on':'') + '" onclick="openTool(\'' + k + '\')">' + l + '</button>').join("")
+    + (ui.tool ? '<button onclick="openTool(null)" title="Collapse the tool panel">Hide</button>' : '');
+}
+function openTool(k){
+  if(k==="entry" && ui.tool==="entry" && ui.draft && ui.draft.id!=null) ui.draft = null;  // "New entry" while editing starts a fresh one
+  ui.tool = (k===ui.tool && k!=="entry") ? null : k;
+  ui.notice = null;
+  renderToolbar(); renderTool();
+}
+function renderTool(){
+  const el = $("tool");
+  el.style.display = ui.tool ? "" : "none";
+  if(ui.tool==="entry") renderEntry();
+  else if(ui.tool==="journal") renderJournal();
+  else if(ui.tool==="coa") renderCoA();
+  else if(ui.tool==="ledger") renderLedger();
+  else if(ui.tool==="settings") renderSettings();
+}
+function noticeHtml(){
+  return ui.notice ? '<div class="' + (ui.notice.ok?'okmsg':'err') + '">' + esc(ui.notice.text) + '</div>' : '';
+}
+function afterChange(){ renderTop(); renderBanners(); renderReports(); }
+
+/* ---------- journal entry ---------- */
+const blankLine = () => ({acct:"", dr:"", cr:""});
+function newDraft(date){ return {id:null, date:date||today(), ref:"", memo:"", lines:[blankLine(), blankLine()]}; }
+
+function acctOptions(sel){
+  let h = '<option value="">— choose account —</option>';
+  for(const t of TYPE_ORDER){
+    const list = sortedAccts().filter(a => a.type===t && (a.active || String(a.id)===sel));
+    if(!list.length) continue;
+    h += '<optgroup label="' + TYPES[t].plural + '">' + list.map(a =>
+      '<option value="' + a.id + '"' + (String(a.id)===sel?' selected':'') + '>' + esc(acctLabel(a)) + (a.active?'':' (inactive)') + '</option>').join("") + '</optgroup>';
+  }
+  return h;
+}
+
+function renderEntry(){
+  const d = ui.draft || (ui.draft = newDraft());
+  const editing = d.id!=null;
+  let h = '<div class="headrow"><div class="head">' + (editing ? 'Edit journal entry #' + d.id : 'New journal entry') + '</div>'
+        + (editing ? '<span class="pill info">Editing</span>' : '') + '</div><div style="height:10px"></div>';
+  h += '<div class="fields entryhead">'
+     + '<div><label>Date</label><input type="date" id="jeDate" value="' + esc(d.date) + '" oninput="ui.draft.date=this.value"></div>'
+     + '<div><label>Ref / check #</label><input value="' + esc(d.ref) + '" oninput="ui.draft.ref=this.value"></div>'
+     + '<div class="wide"><label>Memo</label><input value="' + esc(d.memo) + '" oninput="ui.draft.memo=this.value" placeholder="What happened"></div></div>';
+  h += '<div class="scroll" style="margin-top:12px"><table class="lines"><thead><tr><th style="width:26px">#</th><th>Account</th>'
+     + '<th class="num" style="width:150px">Debit</th><th class="num" style="width:150px">Credit</th><th style="width:36px"></th></tr></thead><tbody>';
+  d.lines.forEach((l,i) => {
+    h += '<tr><td class="muted">' + (i+1) + '</td>'
+       + '<td><select onchange="ui.draft.lines[' + i + '].acct=this.value">' + acctOptions(l.acct) + '</select></td>'
+       + '<td><input class="num" inputmode="decimal" value="' + esc(l.dr) + '" oninput="setAmt(' + i + ',0,this.value)"></td>'
+       + '<td><input class="num" inputmode="decimal" value="' + esc(l.cr) + '" oninput="setAmt(' + i + ',1,this.value)"></td>'
+       + '<td>' + (d.lines.length>2 ? '<button class="small" title="Remove line" onclick="removeLine(' + i + ')">×</button>' : '') + '</td></tr>';
+  });
+  h += '</tbody><tfoot><tr><td></td><td style="text-align:right" class="muted">Totals</td>'
+     + '<td class="num" id="tDr"></td><td class="num" id="tCr"></td><td></td></tr></tfoot></table></div>';
+  h += '<div class="btnrow"><button onclick="addLine()">+ Add line</button>'
+     + '<button onclick="fillBalance()" title="Put the difference on the last empty line">Balance it</button>'
+     + '<span id="tDiff"></span><span style="flex:1"></span>'
+     + (editing ? '<button class="danger" onclick="deleteEntry(' + d.id + ')">Delete entry</button><button onclick="cancelEdit()">Cancel</button>'
+                : '<button onclick="clearDraft()">Clear</button>')
+     + '<button class="primary" onclick="postEntry()">' + (editing ? 'Save changes' : 'Post entry') + '</button></div>';
+  h += '<div class="msg" id="entryMsg">' + noticeHtml() + '</div>';
+  h += '<div class="hint">Each line takes a debit or a credit, not both. Lines left without an amount are dropped when you post.</div>';
+  $("tool").innerHTML = h;
+  entryTotals();
+}
+function setAmt(i, col, v){ ui.draft.lines[i][col ? "cr" : "dr"] = v; entryTotals(); }
+function draftTotals(){
+  let dr = 0, cr = 0, bad = false;
+  for(const l of ui.draft.lines){
+    const a = toCents(l.dr), b = toCents(l.cr);
+    if(isNaN(a) || isNaN(b)){ bad = true; continue; }
+    dr += a; cr += b;
+  }
+  return {dr, cr, bad};
+}
+function entryTotals(){
+  if(!$("tDr")) return;
+  const t = draftTotals();
+  $("tDr").textContent = money(t.dr);
+  $("tCr").textContent = money(t.cr);
+  let h;
+  if(t.bad) h = '<span class="pill bad">Check amounts</span>';
+  else if(t.dr===0 && t.cr===0) h = '';
+  else if(t.dr===t.cr) h = '<span class="pill good">Balanced</span>';
+  else h = '<span class="pill warn">' + (t.dr>t.cr ? 'Debits' : 'Credits') + ' over by ' + fmt$(Math.abs(t.dr-t.cr)) + '</span>';
+  $("tDiff").innerHTML = h;
+}
+function addLine(){ ui.draft.lines.push(blankLine()); ui.notice = null; renderEntry(); }
+function removeLine(i){ ui.draft.lines.splice(i,1); renderEntry(); }
+function fillBalance(){
+  const t = draftTotals();
+  if(t.bad || t.dr===t.cr) return;
+  let l = ui.draft.lines.find(x => !x.dr && !x.cr);
+  if(!l){ l = blankLine(); ui.draft.lines.push(l); }
+  if(t.dr>t.cr) l.cr = plain(t.dr-t.cr); else l.dr = plain(t.cr-t.dr);
+  renderEntry();
+}
+function clearDraft(){ ui.draft = newDraft(ui.draft && ui.draft.date); ui.notice = null; renderEntry(); }
+function cancelEdit(){ ui.draft = null; ui.notice = null; ui.tool = "journal"; renderToolbar(); renderTool(); }
+
+function postEntry(){
+  const d = ui.draft, errs = [], lines = [];
+  if(!validDate(d.date)) errs.push("Give the entry a date.");
+  d.lines.forEach((l,i) => {
+    const dr = toCents(l.dr), cr = toCents(l.cr), n = i+1;
+    if(isNaN(dr) || isNaN(cr)){ errs.push("Line " + n + ": the amount is not a number, or has more than two decimals."); return; }
+    if(dr && cr){ errs.push("Line " + n + " has both a debit and a credit — split it into two lines."); return; }
+    if(!dr && !cr) return;
+    if(!l.acct){ errs.push("Line " + n + " has an amount but no account."); return; }
+    lines.push({acct:+l.acct, dr, cr});
+  });
+  const tdr = lines.reduce((t,l) => t+l.dr, 0), tcr = lines.reduce((t,l) => t+l.cr, 0);
+  if(!errs.length){
+    if(lines.length<2) errs.push("An entry needs at least two lines with amounts.");
+    else if(tdr!==tcr) errs.push((tdr>tcr?"Debits":"Credits") + " exceed " + (tdr>tcr?"credits":"debits") + " by " + fmt$(Math.abs(tdr-tcr)) + ". Entries must balance to post.");
+  }
+  if(errs.length){ $("entryMsg").innerHTML = errs.map(e => '<div class="err">' + esc(e) + '</div>').join(""); return; }
+
+  const rec = {id: d.id!=null ? d.id : root.seq++, date:d.date, ref:d.ref.trim(), memo:d.memo.trim(), lines};
+  const i = root.entries.findIndex(e => e.id===rec.id);
+  if(i>=0) root.entries[i] = rec; else root.entries.push(rec);
+  const saved = commit();
+  let text = (i>=0 ? "Saved changes to entry #" : "Posted entry #") + rec.id + " — " + fmt$(tdr) + " on " + fmtD(rec.date) + ".";
+  if(rec.date>ui.asOf) text += " It is dated after the statements' as-of date (" + fmtD(ui.asOf) + "), so it will not show below until you move that date.";
+  else if(rec.date.slice(0,4)!==ui.asOf.slice(0,4)) text += " It falls in " + rec.date.slice(0,4) + ", outside the year the statements are showing.";
+  if(!saved) text += " Not saved to this browser — see the warning above.";
+  ui.notice = {ok:saved, text};
+  ui.draft = newDraft(rec.date);
+  renderEntry(); afterChange();
+}
+function editEntry(id){
+  const e = root.entries.find(x => x.id===id);
+  if(!e) return;
+  ui.draft = {id:e.id, date:e.date, ref:e.ref, memo:e.memo,
+              lines:e.lines.map(l => ({acct:String(l.acct), dr:plain(l.dr), cr:plain(l.cr)}))};
+  ui.notice = null; ui.tool = "entry";
+  renderToolbar(); renderTool();
+  $("tool").scrollIntoView({behavior:"smooth", block:"start"});
+}
+function deleteEntry(id){
+  const e = root.entries.find(x => x.id===id);
+  if(!e || !confirm("Delete entry #" + id + " (" + fmtD(e.date) + ", " + fmt$(entryTotal(e)) + ")? This cannot be undone.")) return;
+  root.entries = root.entries.filter(x => x.id!==id);
+  const saved = commit();
+  ui.draft = null;
+  ui.notice = {ok:saved, text:"Deleted entry #" + id + "." + (saved ? "" : " Not saved to this browser.")};
+  ui.tool = "journal";
+  renderToolbar(); renderTool(); afterChange();
+}
+
+/* ---------- journal list ---------- */
+function yearSelect(val, handler){
+  return '<select onchange="' + handler + '">' + ["all", ...yearList()].map(y =>
+    '<option value="' + y + '"' + (String(val)===String(y)?' selected':'') + '>' + (y==="all"?"All years":y) + '</option>').join("") + '</select>';
+}
+function renderJournal(){
+  let h = '<div class="head">Journal</div><div class="row" style="margin-bottom:10px">'
+        + '<div style="width:140px"><label>Year</label>' + yearSelect(ui.jYear, "ui.jYear=this.value;renderJournalRows()") + '</div>'
+        + '<div style="flex:1;min-width:200px"><label>Search memo, ref, account or amount</label><input value="' + esc(ui.jFilter) + '" oninput="ui.jFilter=this.value;renderJournalRows()"></div></div>'
+        + noticeHtml() + '<div id="jRows"></div>';
+  $("tool").innerHTML = h;
+  renderJournalRows();
+}
+function entryText(e){
+  return [e.ref, e.memo, e.date, money(entryTotal(e)), plain(entryTotal(e)), ...e.lines.map(l => acctLabel(acctById(l.acct)))].join(" ").toLowerCase();
+}
+const byDateDesc = (a,b) => b.date.localeCompare(a.date) || b.id-a.id;
+function renderJournalRows(){
+  const q = ui.jFilter.trim().toLowerCase(), LIMIT = 250;
+  const list = root.entries.filter(e => (ui.jYear==="all" || e.date.slice(0,4)===String(ui.jYear)) && (!q || entryText(e).includes(q))).sort(byDateDesc);
+  if(!list.length){ $("jRows").innerHTML = '<div class="muted">' + (root.entries.length ? 'No entries match.' : 'No entries yet. Post one from New entry.') + '</div>'; return; }
+  let h = '<div class="scroll"><table><thead><tr><th>Date</th><th>#</th><th>Ref</th><th>Memo</th><th>Account</th><th class="num">Debit</th><th class="num">Credit</th><th></th></tr></thead><tbody>';
+  for(const e of list.slice(0,LIMIT)){
+    const ls = e.lines.slice().sort((a,b) => (b.dr>0)-(a.dr>0)), n = ls.length;
+    ls.forEach((l,j) => {
+      const a = acctById(l.acct);
+      h += '<tr' + (j===0?' class="grp"':'') + '>';
+      if(j===0) h += '<td rowspan="' + n + '" style="white-space:nowrap">' + fmtD(e.date) + '</td><td rowspan="' + n + '" class="muted">' + e.id + '</td>'
+                   + '<td rowspan="' + n + '">' + esc(e.ref) + '</td><td rowspan="' + n + '">' + esc(e.memo) + '</td>';
+      h += '<td class="' + (l.dr?'dr':'cr') + '">' + esc(acctLabel(a)) + '</td><td class="num">' + (l.dr?money(l.dr):'') + '</td><td class="num">' + (l.cr?money(l.cr):'') + '</td>';
+      if(j===0) h += '<td rowspan="' + n + '" class="act"><button class="small" onclick="editEntry(' + e.id + ')">Edit</button></td>';
+      h += '</tr>';
+    });
+  }
+  h += '</tbody></table></div>';
+  if(list.length>LIMIT) h += '<div class="hint">Showing the latest ' + LIMIT + ' of ' + list.length + ' — narrow it by year or search.</div>';
+  $("jRows").innerHTML = h;
+}
+
+/* ---------- chart of accounts ---------- */
+function blankAcctForm(){ return {id:null, num:"", name:"", type:"expense", sub:"operating"}; }
+function subOptions(type, sel){
+  return Object.entries(TYPES[type].subs).map(([k,l]) => '<option value="' + k + '"' + (k===sel?' selected':'') + '>' + l + '</option>').join("");
+}
+function renderCoA(){
+  const f = ui.acctForm || (ui.acctForm = blankAcctForm());
+  const use = usage(), pos = sums(null, ui.asOf);
+  const editing = f.id!=null, used = editing && use.get(f.id);
+  let h = '<div class="headrow"><div class="head">Chart of accounts</div><span class="muted">Balances as of ' + fmtD(ui.asOf) + '</span></div><div style="height:10px"></div>';
+  h += '<div class="fields acctform">'
+     + '<div><label>Number</label><input id="afNum" value="' + esc(f.num) + '" oninput="ui.acctForm.num=this.value" placeholder="6500"></div>'
+     + '<div><label>Name</label><input id="afName" value="' + esc(f.name) + '" oninput="ui.acctForm.name=this.value" placeholder="Meals"></div>'
+     + '<div><label>Type</label><select onchange="acctType(this.value)">' + TYPE_ORDER.map(t => '<option value="' + t + '"' + (t===f.type?' selected':'') + '>' + TYPES[t].label + '</option>').join("") + '</select></div>'
+     + '<div><label>Classification</label><select id="afSub" onchange="ui.acctForm.sub=this.value">' + subOptions(f.type, f.sub) + '</select></div>'
+     + '<div class="go"><div class="row" style="flex-wrap:nowrap">' + (editing ? '<button onclick="ui.acctForm=null;ui.notice=null;renderCoA()">Cancel</button>' : '')
+     + '<button class="primary" onclick="saveAcct()">' + (editing ? 'Save account' : 'Add account') + '</button></div></div></div>';
+  if(used) h += '<div class="hint" style="color:var(--amber)">This account is used in ' + used + ' entr' + (used===1?'y':'ies') + '. Changing its type or classification moves all of its history to the new place on every statement, prior years included.</div>';
+  h += '<div class="msg" id="acctMsg">' + noticeHtml() + '</div>';
+  h += '<div class="hint" style="margin-top:0;margin-bottom:6px">Classification decides where the account lands on the balance sheet and in the cash flow statement. Record depreciation against an <b>Accumulated depreciation</b> account, not the asset itself, or the cash flow statement will read it as a sale of equipment.</div>';
+  h += '<div class="scroll"><table><thead><tr><th>Number</th><th>Name</th><th>Classification</th><th class="num">Balance</th><th class="num">Entries</th><th></th></tr></thead><tbody>';
+  for(const t of TYPE_ORDER){
+    const list = sortedAccts().filter(a => a.type===t);
+    if(!list.length) continue;
+    h += '<tr class="secrow"><td colspan="6">' + TYPES[t].plural + '</td></tr>';
+    for(const a of list){
+      const n = use.get(a.id)||0, b = normalSign(a)*(pos.get(a.id)||0);
+      h += '<tr' + (a.active?'':' class="inactive"') + '><td class="num" style="text-align:left">' + esc(a.num) + '</td><td>' + esc(a.name)
+         + (a.active?'':' <span class="pill warn">Inactive</span>') + '</td><td class="muted">' + TYPES[a.type].subs[a.sub] + '</td>'
+         + '<td class="num">' + (n ? fmtA(b) : '') + '</td><td class="num muted">' + (n||'') + '</td><td class="act">'
+         + '<button class="small" onclick="editAcct(' + a.id + ')">Edit</button> '
+         + '<button class="small" onclick="toggleAcct(' + a.id + ')" title="' + (a.active?'Hide it from the entry form; history and statements are unaffected':'Show it in the entry form again') + '">' + (a.active?'Deactivate':'Reactivate') + '</button> '
+         + (n ? '<button class="small danger" disabled title="Used in ' + n + ' entr' + (n===1?'y':'ies') + ' — deactivate it instead">Delete</button>'
+              : '<button class="small danger" onclick="deleteAcct(' + a.id + ')">Delete</button>')
+         + '</td></tr>';
+    }
+  }
+  h += '</tbody></table></div>';
+  $("tool").innerHTML = h;
+}
+function acctType(t){
+  ui.acctForm.type = t;
+  ui.acctForm.sub = Object.keys(TYPES[t].subs)[0];
+  $("afSub").innerHTML = subOptions(t, ui.acctForm.sub);
+}
+function editAcct(id){
+  const a = acctById(id);
+  ui.acctForm = {id:a.id, num:a.num, name:a.name, type:a.type, sub:a.sub};
+  ui.notice = null; renderCoA();
+  $("afName").focus();
+}
+function saveAcct(){
+  const f = ui.acctForm, num = f.num.trim(), name = f.name.trim(), errs = [];
+  if(!num) errs.push("Give the account a number.");
+  else if(root.accounts.some(a => a.num===num && a.id!==f.id)) errs.push("Account " + num + " already exists — numbers must be unique.");
+  if(!name) errs.push("Give the account a name.");
+  if(errs.length){ $("acctMsg").innerHTML = errs.map(e => '<div class="err">' + esc(e) + '</div>').join(""); return; }
+  let text;
+  if(f.id==null){
+    root.accounts.push({id:root.seq++, num, name, type:f.type, sub:f.sub, active:true});
+    text = "Added " + num + " · " + name + ".";
+  }else{
+    Object.assign(acctById(f.id), {num, name, type:f.type, sub:f.sub});
+    text = "Saved " + num + " · " + name + ".";
+  }
+  const saved = commit();
+  ui.acctForm = null;
+  ui.notice = {ok:saved, text: text + (saved ? "" : " Not saved to this browser.")};
+  renderCoA(); afterChange();
+}
+function toggleAcct(id){ const a = acctById(id); a.active = !a.active; commit(); ui.notice = null; renderCoA(); renderTop(); }
+function deleteAcct(id){
+  const a = acctById(id);
+  if(usage().get(id) || !confirm("Delete account " + acctLabel(a) + "?")) return;
+  root.accounts = root.accounts.filter(x => x.id!==id);
+  if(ui.acctForm && ui.acctForm.id===id) ui.acctForm = null;
+  const saved = commit();
+  ui.notice = {ok:saved, text:"Deleted " + acctLabel(a) + "."};
+  renderCoA(); afterChange();
+}
+
+/* ---------- ledger ---------- */
+function renderLedger(){
+  if(ui.ledgerAcct==null || !acctById(ui.ledgerAcct)){
+    const first = sortedAccts().find(a => a.sub==="cash") || sortedAccts()[0];
+    ui.ledgerAcct = first ? first.id : null;
+  }
+  const opts = TYPE_ORDER.map(t => {
+    const list = sortedAccts().filter(a => a.type===t);
+    return list.length ? '<optgroup label="' + TYPES[t].plural + '">' + list.map(a => '<option value="' + a.id + '"' + (a.id===ui.ledgerAcct?' selected':'') + '>' + esc(acctLabel(a)) + '</option>').join("") + '</optgroup>' : '';
+  }).join("");
+  let h = '<div class="head">General ledger</div><div class="row" style="margin-bottom:10px">'
+        + '<div style="flex:1;min-width:220px;max-width:420px"><label>Account</label><select onchange="ui.ledgerAcct=+this.value;renderLedgerRows()">' + opts + '</select></div>'
+        + '<div style="width:140px"><label>Year</label>' + yearSelect(ui.ledgerYear, "ui.ledgerYear=this.value;renderLedgerRows()") + '</div></div><div id="lRows"></div>';
+  $("tool").innerHTML = h;
+  renderLedgerRows();
+}
+function renderLedgerRows(){
+  const a = acctById(ui.ledgerAcct);
+  if(!a){ $("lRows").innerHTML = '<div class="muted">No accounts.</div>'; return; }
+  const sg = normalSign(a), yr = ui.ledgerYear, is = isIS(a);
+  const rows = [];
+  for(const e of root.entries) for(const l of e.lines) if(l.acct===a.id) rows.push({e, l});
+  rows.sort((x,y) => x.e.date.localeCompare(y.e.date) || x.e.id-y.e.id);
+  let bal = 0, h = '', prevYear = null, shown = 0, tdr = 0, tcr = 0;
+  // Income and expense accounts start every year at zero — last year's total now lives in retained earnings.
+  if(yr!=="all" && !is){
+    for(const r of rows) if(r.e.date.slice(0,4) < String(yr)) bal += sg*(r.l.dr-r.l.cr);
+    h += '<tr><td colspan="5" class="muted">Opening balance, Jan 1, ' + yr + '</td><td class="num">' + fmtA(bal) + '</td><td></td></tr>';
+  }
+  for(const r of rows){
+    const y = r.e.date.slice(0,4);
+    if(yr!=="all" && y!==String(yr)) continue;
+    if(is && y!==prevYear){
+      if(prevYear!==null) h += '<tr><td colspan="7" class="muted">Jan 1, ' + y + ' — ' + prevYear + ' closed to retained earnings; balance restarts at zero.</td></tr>';
+      bal = 0;
+    }
+    prevYear = y;
+    bal += sg*(r.l.dr-r.l.cr); tdr += r.l.dr; tcr += r.l.cr; shown++;
+    h += '<tr><td style="white-space:nowrap">' + fmtD(r.e.date) + '</td><td class="muted">' + r.e.id + '</td><td>' + esc(r.e.ref) + '</td><td>' + esc(r.e.memo) + '</td>'
+       + '<td class="num">' + (r.l.dr?money(r.l.dr):'') + '</td><td class="num">' + (r.l.cr?money(r.l.cr):'') + '</td>'
+       + '<td class="num">' + fmtA(bal) + ' <button class="small" style="margin-left:6px" onclick="editEntry(' + r.e.id + ')">Edit</button></td></tr>';
+  }
+  if(!shown) h += '<tr><td colspan="7" class="muted">No activity' + (yr==="all" ? '' : ' in ' + yr) + '.</td></tr>';
+  else h += '<tr class="grp"><td colspan="4" class="muted">Totals</td><td class="num">' + money(tdr) + '</td><td class="num">' + money(tcr) + '</td><td class="num" style="color:var(--gold);font-weight:700">' + fmtA(bal) + '</td></tr>';
+  $("lRows").innerHTML = '<div class="scroll"><table><thead><tr><th>Date</th><th>#</th><th>Ref</th><th>Memo</th><th class="num">Debit</th><th class="num">Credit</th><th class="num">Balance</th></tr></thead><tbody>' + h + '</tbody></table></div>'
+    + '<div class="hint">' + esc(TYPES[a.type].subs[a.sub]) + ' — balance shown positive when it sits on its normal ' + (sg>0?'debit':'credit') + ' side.</div>';
+}
+
+/* ---------- settings & backup ---------- */
+function renderSettings(){
+  const since = root.lastExport ? 'Last backup ' + fmtD(root.lastExport.slice(0,10)) + '.' : 'Never backed up.';
+  let h = '<div class="head">Settings & backup</div>'
+    + '<div class="split"><div><label>Company name</label><input value="' + esc(root.company) + '" onchange="root.company=this.value.trim();save();renderTop()" placeholder="Shown at the top of every statement"></div>'
+    + '<div><label>Fiscal year</label><input value="Calendar year — Jan 1 to Dec 31" disabled></div></div>'
+    + '<div class="head" style="margin-top:18px">Backup</div>'
+    + '<div class="muted">The books live in this browser only (local storage, key <code>' + KEY + '</code>). Clearing site data, or opening the page in another browser, shows empty books. ' + since
+    + (root.changes ? ' <b style="color:var(--amber)">' + root.changes + ' change' + (root.changes===1?'':'s') + ' since.</b>' : '') + '</div>'
+    + '<div class="btnrow"><button class="primary" onclick="exportFile()">Export backup (.json)</button><button onclick="$(\'impFile\').click()">Import backup…</button></div>'
+    + noticeHtml();
+  if(!root.entries.length)
+    h += '<div class="head" style="margin-top:18px">Try it out</div><div class="muted">Loads two years of sample entries for a small service business, using the default chart of accounts. Erase them from here when you are done.</div>'
+       + '<div class="btnrow"><button onclick="loadDemo()">Load demo entries</button></div>';
+  h += '<details><summary>Danger zone</summary><div class="muted" style="margin-top:6px">Erases every entry and restores the default chart of accounts. Export first if there is anything you want to keep.</div>'
+     + '<div class="btnrow"><button class="danger" onclick="eraseAll()">Erase all books</button></div></details>';
+  $("tool").innerHTML = h;
+}
+function exportFile(){
+  root.lastExport = new Date().toISOString();
+  const was = root.changes;
+  root.changes = 0;
+  const blob = new Blob([JSON.stringify(root, null, 1)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "books-" + (root.company ? root.company.replace(/[^\w-]+/g,"-").toLowerCase() + "-" : "") + today() + ".json";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  save();
+  ui.notice = {ok:true, text:"Exported " + root.entries.length + " entries and " + root.accounts.length + " accounts" + (was ? "" : " (nothing had changed since the last backup)") + "."};
+  renderSettings(); renderTop();
+}
+function importFile(inp){
+  const file = inp.files && inp.files[0];
+  inp.value = "";
+  if(!file) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    let obj;
+    try{ obj = JSON.parse(rd.result); }catch(e){ ui.notice = {ok:false, text:"That file is not valid JSON — nothing was changed."}; renderSettings(); return; }
+    if(!obj || !Array.isArray(obj.accounts) || !Array.isArray(obj.entries)){ ui.notice = {ok:false, text:"That file is not a Books backup — it has no accounts and entries. Nothing was changed."}; renderSettings(); return; }
+    const r = normalize(obj);
+    if(!confirm("Replace the books in this browser with " + r.accounts.length + " accounts and " + r.entries.length + " entries from " + file.name + "? What is here now will be overwritten.")) return;
+    r.changes = 0;
+    root = r;
+    const saved = save();
+    ui.draft = null; ui.acctForm = null; ui.ledgerAcct = null;
+    ui.notice = {ok:saved, text:"Imported " + file.name + "." + (saved ? "" : " Not saved to this browser.")};
+    render();
+  };
+  rd.readAsText(file);
+}
+function eraseAll(){
+  if(!confirm("Erase every entry and reset the chart of accounts? This cannot be undone.")) return;
+  root = blank();
+  const saved = save();
+  ui.draft = null; ui.acctForm = null; ui.ledgerAcct = null;
+  ui.notice = {ok:saved, text:"Books erased."};
+  render();
+}
+function loadDemo(){
+  if(root.entries.length) return;
+  root.accounts = blank().accounts;
+  root.seq = root.accounts.length + 1;
+  const Y = +today().slice(0,4), P = Y-1;
+  const A = n => root.accounts.find(a => a.num===n).id;
+  const D = [
+    [P+"-01-02","","Owner investment",[["1000",25000,0],["3000",0,25000]]],
+    [P+"-01-15","1001","Equipment — part cash, part loan",[["1500",12000,0],["1000",0,4000],["2500",0,8000]]],
+    [P+"-01-31","1002","Prepay annual insurance",[["1300",1800,0],["1000",0,1800]]],
+    [P+"-06-30","INV-1","Invoices, first half",[["1100",40000,0],["4100",0,40000]]],
+    [P+"-07-15","","Customer payments",[["1000",35000,0],["1100",0,35000]]],
+    [P+"-12-01","1003","Rent, full year",[["6300",12000,0],["1000",0,12000]]],
+    [P+"-12-31","","Insurance used, Feb–Dec",[["6150",1650,0],["1300",0,1650]]],
+    [P+"-12-31","","Depreciation",[["6100",2400,0],["1590",0,2400]]],
+    [P+"-12-31","1004","Loan payment",[["2500",2000,0],["7000",400,0],["1000",0,2400]]],
+    [Y+"-01-10","","Cash sales",[["1000",18500,0],["4000",0,18500]]],
+    [Y+"-01-31","","Insurance used, Jan",[["6150",150,0],["1300",0,150]]],
+    [Y+"-02-01","","Supplies on card",[["6200",650,0],["2100",0,650]]],
+    [Y+"-03-01","1005","Rent, Mar–Aug",[["6300",6000,0],["1000",0,6000]]],
+    [Y+"-03-15","1006","Owner draw",[["3100",3000,0],["1000",0,3000]]],
+    [Y+"-04-01","INV-2","Invoices",[["1100",9200,0],["4100",0,9200]]],
+    [Y+"-05-01","1007","Pay credit card",[["2100",650,0],["1000",0,650]]],
+    [Y+"-05-20","","Software subscription",[["6350",480,0],["2100",0,480]]],
+    [Y+"-06-30","","Depreciation, half year",[["6100",1200,0],["1590",0,1200]]],
+    [Y+"-06-30","1008","Loan payment",[["2500",1000,0],["7000",180,0],["1000",0,1180]]]
+  ];
+  root.entries = D.map(([date,ref,memo,ls]) => ({id:root.seq++, date, ref, memo,
+    lines:ls.map(([n,dr,cr]) => ({acct:A(n), dr:dr*100, cr:cr*100}))}));
+  const saved = commit();
+  ui.notice = {ok:saved, text:"Loaded " + root.entries.length + " demo entries across " + P + " and " + Y + "."};
+  render();
+}
+
+/* ---------- statements ---------- */
+function setAsOf(v){
+  ui.asOf = validDate(v) ? v : today();
+  renderReportsHead(); renderReports();
+  if(ui.tool==="coa") renderCoA();
+}
+function renderReportsHead(){
+  const D = ui.asOf, Y = D.slice(0,4);
+  $("asOf").value = D;
+  $("rperiod").innerHTML = 'Balance sheet at ' + fmtD(D) + '<span class="vbar">|</span>income and cash flow for ' + Y + ' to date, Jan 1 – ' + fmtD(D).replace(/,\s*\d{4}$/,"") + ' · calendar fiscal year';
+  const cy = +today().slice(0,4);
+  let h = '<button class="small' + (D===today()?' on':'') + '" onclick="setAsOf(\'' + today() + '\')">Today</button>';
+  for(const y of yearList().filter(y => y<cy).slice(0,4))
+    h += '<button class="small' + (D===y+"-12-31"?' on':'') + '" onclick="setAsOf(\'' + y + '-12-31\')" title="Year ended Dec 31, ' + y + '">FY ' + y + '</button>';
+  $("yeBtns").innerHTML = h;
+}
+
+const tr = (cls, label, vals, numCls) => '<tr class="' + cls + '"><td>' + label + '</td>' + vals.map(v => '<td class="num' + (numCls ? ' ' + numCls(v) : '') + '">' + fmtA(v) + '</td>').join("") + '</tr>';
+const signCls = v => v>0 ? "pos" : v<0 ? "neg" : "";
+function lines(filter, value, ncol){
+  const out = [], tot = new Array(ncol).fill(0);
+  for(const a of sortedAccts().filter(filter)){
+    const v = value(a);
+    if(v.every(x => x===0)) continue;
+    v.forEach((x,i) => tot[i] += x);
+    out.push(tr("ac", esc(a.name), v));
+  }
+  return {html:out.join(""), tot, n:out.length};
+}
+function stmtCard(title, period, pill, body, foot){
+  return '<div class="card"><div class="shead"><h3>' + title + '</h3>' + (pill||'') + '</div><div class="period">' + period + '</div>'
+       + '<div class="scroll"><table class="stmt">' + body + '</table></div>' + (foot ? '<div class="hint">' + foot + '</div>' : '') + '</div>';
+}
+
+function balanceSheet(D, PE){
+  const c = positionAt(D), p = positionAt(PE);
+  const v = sg => a => [sg*(c.cum.get(a.id)||0), sg*(p.cum.get(a.id)||0)];
+  const of = (type, subs) => a => a.type===type && subs.includes(a.sub);
+  let b = '<thead><tr><th></th><th class="num">' + fmtD(D) + '</th><th class="num">' + fmtD(PE) + '</th></tr></thead><tbody>';
+
+  const group = (label, sec, subLabel) => {
+    if(!sec.n) return {h:'', tot:[0,0]};
+    return {h:'<tr class="grp"><td colspan="3">' + label + '</td></tr>' + sec.html + (sec.n>1 || subLabel ? tr("sub", subLabel || "Total " + label.toLowerCase(), sec.tot) : ''), tot:sec.tot};
+  };
+  const add = (...xs) => xs.reduce((t,x) => [t[0]+x.tot[0], t[1]+x.tot[1]], [0,0]);
+
+  const ca = group("Current assets", lines(of("asset",["cash","current"]), v(1), 2));
+  const fa = group("Fixed assets", lines(of("asset",["fixed","contra"]), v(1), 2), "Net fixed assets");
+  const oa = group("Other assets", lines(of("asset",["other"]), v(1), 2));
+  const TA = add(ca, fa, oa);
+  b += '<tr class="sec"><td colspan="3">Assets</td></tr>' + ca.h + fa.h + oa.h + tr("tot", "Total assets", TA);
+
+  const cl = group("Current liabilities", lines(of("liability",["current"]), v(-1), 2));
+  const ll = group("Long-term liabilities", lines(of("liability",["longterm"]), v(-1), 2));
+  const TL = add(cl, ll);
+  b += '<tr class="sec"><td colspan="3">Liabilities</td></tr>' + cl.h + ll.h + ((cl.h && ll.h) ? tr("sub", "Total liabilities", TL) : '');
+  if(!cl.h && !ll.h) b += tr("ac", "No liabilities", [0,0]);
+
+  const eq = lines(of("equity",["contrib","draws"]), v(-1), 2);
+  const reAccts = root.accounts.filter(of("equity",["re"]));
+  const reBal = pos => reAccts.reduce((t,a) => t - (pos.cum.get(a.id)||0), 0);
+  const RE = [reBal(c) + c.prior, reBal(p) + p.prior], NI = [c.ni, p.ni];
+  const TE = [eq.tot[0]+RE[0]+NI[0], eq.tot[1]+RE[1]+NI[1]];
+  b += '<tr class="sec"><td colspan="3">Equity</td></tr>' + eq.html
+     + tr("ac", "Retained earnings", RE) + tr("ac", "Net income, current year", NI) + tr("sub", "Total equity", TE);
+  const TLE = [TL[0]+TE[0], TL[1]+TE[1]];
+  b += tr("tot", "Total liabilities &amp; equity", TLE) + '</tbody>';
+
+  const off = TA[0]-TLE[0], offP = TA[1]-TLE[1];
+  const pill = off===0 && offP===0 ? '<span class="pill good">Balances</span>'
+             : '<span class="pill bad">Out by ' + fmt$(Math.abs(off||offP)) + '</span>';
+  return stmtCard("Balance sheet", "At " + fmtD(D) + ", with the prior year end for comparison", pill, b,
+    "Net income rolls into retained earnings at each Dec 31 automatically — do not post a closing entry, or that year's income statement will read zero.");
+}
+
+function incomeStatement(from, to){
+  const m = sums(from, to);
+  const of = (type, sub) => a => a.type===type && a.sub===sub;
+  const cr = a => [-(m.get(a.id)||0)], dr = a => [m.get(a.id)||0];
+  const rev = lines(of("revenue","operating"), cr, 1);
+  const cogs = lines(of("expense","cogs"), dr, 1);
+  const opx = lines(of("expense","operating"), dr, 1);
+  const oi = lines(of("revenue","other"), cr, 1);
+  const oe = lines(of("expense","other"), a => [-(m.get(a.id)||0)], 1);  // shown as a deduction inside "other"
+  const GP = rev.tot[0] - cogs.tot[0], OP = GP - opx.tot[0], OTH = oi.tot[0] + oe.tot[0], NI = OP + OTH;
+
+  let b = '<tbody><tr class="sec"><td colspan="2">Revenue</td></tr>' + (rev.n ? rev.html : tr("ac","No revenue",[0])) + tr("sub", "Total revenue", rev.tot);
+  if(cogs.n) b += '<tr class="sec"><td colspan="2">Cost of goods sold</td></tr>' + cogs.html + tr("sub", "Gross profit", [GP]);
+  b += '<tr class="sec"><td colspan="2">Operating expenses</td></tr>' + (opx.n ? opx.html : tr("ac","No operating expenses",[0])) + tr("sub", "Total operating expenses", opx.tot)
+     + '<tr class="gap"><td colspan="2"></td></tr>' + tr("sub", "Operating income", [OP]);
+  if(oi.n || oe.n) b += '<tr class="sec"><td colspan="2">Other income (expense)</td></tr>' + oi.html + oe.html + tr("sub", "Net other income (expense)", [OTH]);
+  b += tr("tot", "Net income", [NI], signCls) + '</tbody>';
+  const margin = rev.tot[0] ? ' · <span style="font-family:var(--mono)">' + (NI/rev.tot[0]*100).toFixed(1) + '%</span> of revenue' : '';
+  return {html: stmtCard("Profit &amp; loss", fmtD(from) + " – " + fmtD(to) + margin, "", b), NI};
+}
+
+function cashFlow(from, to, PE){
+  const m = sums(from, to), NI = netIncome(m);
+  const cashAt = D => { const s = sums(null, D); return root.accounts.filter(a => a.type==="asset" && a.sub==="cash").reduce((t,a) => t+(s.get(a.id)||0), 0); };
+  // Cash effect of a balance-sheet account is the opposite of its debit-side change: an asset that
+  // grew used cash, a liability that grew supplied it. Summed with net income, this is the change in cash exactly.
+  const eff = a => [-(m.get(a.id)||0)];
+  const of = pairs => a => pairs.some(([t,s]) => a.type===t && s.includes(a.sub));
+  const adj = lines(of([["asset",["contra"]]]), eff, 1);
+  const wc  = lines(of([["asset",["current"]],["liability",["current"]]]), eff, 1);
+  const inv = lines(of([["asset",["fixed","other"]]]), eff, 1);
+  const fin = lines(of([["liability",["longterm"]],["equity",["contrib","draws","re"]]]), eff, 1);
+  const OPS = NI + adj.tot[0] + wc.tot[0], NET = OPS + inv.tot[0] + fin.tot[0];
+  const begin = cashAt(PE), end = cashAt(to);
+
+  let b = '<tbody><tr class="sec"><td colspan="2">Operating activities</td></tr>' + tr("ac", "Net income", [NI]);
+  if(adj.n) b += '<tr class="grp"><td colspan="2">Non-cash adjustments</td></tr>' + adj.html.replace(/<td>([^<]*)<\/td>/g, '<td>Depreciation — $1</td>');
+  if(wc.n) b += '<tr class="grp"><td colspan="2">Changes in working capital</td></tr>' + wc.html;
+  b += tr("sub", "Net cash from operating", [OPS]);
+  b += '<tr class="sec"><td colspan="2">Investing activities</td></tr>' + (inv.n ? inv.html : tr("ac","None",[0])) + tr("sub", "Net cash from investing", inv.tot);
+  b += '<tr class="sec"><td colspan="2">Financing activities</td></tr>' + (fin.n ? fin.html : tr("ac","None",[0])) + tr("sub", "Net cash from financing", fin.tot);
+  b += '<tr class="gap"><td colspan="2"></td></tr>' + tr("sub", "Net change in cash", [NET], signCls)
+     + tr("ac", "Cash at " + fmtD(PE), [begin]) + tr("tot", "Cash at " + fmtD(to), [begin+NET]) + '</tbody>';
+  const ties = begin + NET === end;
+  const pill = ties ? '<span class="pill good">Ties to cash</span>' : '<span class="pill bad">Off by ' + fmt$(Math.abs(begin+NET-end)) + '</span>';
+  return stmtCard("Cash flow", "Indirect method, " + fmtD(from) + " – " + fmtD(to), pill, b,
+    "Built from the change in each balance-sheet account. Asset sales and the current portion of long-term debt are not split out.");
+}
+
+function renderReports(){
+  const D = ui.asOf, Y = +D.slice(0,4), from = Y + "-01-01", PE = (Y-1) + "-12-31";
+  if(!root.entries.length){
+    $("stmts").innerHTML = '<div class="card empty" style="grid-column:1/-1"><div class="muted">No entries yet. Post a journal entry above — or load the demo from Settings &amp; backup — and the balance sheet, P&amp;L and cash flow will build here.</div></div>';
+    return;
+  }
+  $("stmts").innerHTML = balanceSheet(D, PE) + incomeStatement(from, D).html + cashFlow(from, D, PE);
+}
+
+function render(){ renderTop(); renderBanners(); renderToolbar(); renderTool(); renderReportsHead(); renderReports(); }
+
+root = load();
+render();
+</script>
+</body>
+</html>
