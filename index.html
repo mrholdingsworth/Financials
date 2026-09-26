@@ -108,6 +108,27 @@ body.locked{overflow:hidden}
 @media(max-width:660px){.modal{padding:10px}.modalcard{max-height:calc(100vh - 20px)}.mbar,.mbody{padding-left:14px;padding-right:14px}}
 
 /* --- this app --- */
+.seg{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:var(--panel2)}
+.seg button{border:none;border-radius:0;background:transparent;display:inline-flex;align-items:center}
+.seg button+button{border-left:1px solid var(--line2)}
+.seg button:hover{color:#fff}
+.seg button.on{background:var(--bluebg);color:var(--blue)}
+.rctl .seg button{height:32px}
+.badge{display:inline-block;min-width:18px;padding:0 6px;margin-left:7px;border-radius:999px;background:var(--amber);
+       color:#1a1100;font-size:11px;font-weight:700;line-height:18px;text-align:center}
+button.attn{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--amber)}
+.banner.blue{background:var(--bluebg);border:1px solid rgba(77,159,255,.35);color:var(--blue);
+             display:flex;justify-content:space-between;align-items:center;gap:10px}
+.chk{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--tx);
+     text-transform:none;letter-spacing:0;margin:0;cursor:pointer}
+.chk input{width:auto;margin:0;accent-color:var(--blue);width:15px;height:15px}
+.recbox{margin-top:14px;padding:12px 14px;background:var(--panel2);border:1px solid var(--line);border-radius:10px}
+.recbox input,.recbox select{background:var(--panel)}
+.recfields{margin-top:10px;grid-template-columns:120px 130px 210px 210px}
+@media(max-width:760px){.recfields{grid-template-columns:1fr 1fr}}
+.tbcard{grid-column:1/-1}
+.tbcard .scroll{max-width:760px}
+.tbcard .stmt tr.ac td:first-child{white-space:nowrap;width:1%}
 .dt{color:var(--gold)}
 th.dt{color:var(--gold)}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
@@ -187,10 +208,11 @@ tr.inactive td{color:var(--mut)}
   <section class="card" id="rhead">
     <div class="rhead">
       <div>
-        <h2>Financial statements</h2>
+        <h2 id="rtitle">Financial statements</h2>
         <div class="muted" id="rperiod"></div>
       </div>
       <div class="rctl no-print">
+        <div><label>View</label><div class="seg" id="viewSeg"></div></div>
         <div><label for="asOf">As of</label><input type="date" id="asOf" onchange="setAsOf(this.value)"></div>
         <div class="row" id="yeBtns"></div>
         <button onclick="window.print()">Print</button>
@@ -307,13 +329,33 @@ const fyStart = fy => fyM()===12 ? fy + "-01-01" : (fy-1) + "-" + pad2(fyM()+1) 
 const fyOf = date => { const y = +date.slice(0,4), m = +date.slice(5,7); return m>fyM() ? y+1 : y; };
 const fyLabel = fy => "FY " + fy;
 
+/* ---------- date stepping for recurring entries ----------
+   Every occurrence is computed from the schedule's anchor, never from the previous occurrence, so a
+   schedule anchored on Jan 31 lands on Feb 28 (or 29) and then back on Mar 31 rather than drifting to
+   the 28th. Day math goes through Date.UTC, which has no DST days of 23 or 25 hours. */
+function addMonths(s, n){
+  const y = +s.slice(0,4), m0 = +s.slice(5,7) - 1 + n, d = +s.slice(8,10);
+  const Y = y + Math.floor(m0/12), M = ((m0 % 12) + 12) % 12 + 1;
+  return Y + "-" + pad2(M) + "-" + pad2(Math.min(d, lastDay(Y, M)));
+}
+function addDays(s, n){
+  const t = new Date(Date.UTC(+s.slice(0,4), +s.slice(5,7) - 1, +s.slice(8,10) + n));
+  return t.getUTCFullYear() + "-" + pad2(t.getUTCMonth()+1) + "-" + pad2(t.getUTCDate());
+}
+const UNITS = {
+  week:   {one:"Weekly",    label:"week(s)",    noun:"weeks",    step:(s,n) => addDays(s, 7*n)},
+  month:  {one:"Monthly",   label:"month(s)",   noun:"months",   step:(s,n) => addMonths(s, n)},
+  quarter:{one:"Quarterly", label:"quarter(s)", noun:"quarters", step:(s,n) => addMonths(s, 3*n)},
+  year:   {one:"Yearly",    label:"year(s)",    noun:"years",    step:(s,n) => addMonths(s, 12*n)}
+};
+
 /* ---------- state ---------- */
-let root, saveOk = true, loadNote = null;
+let root, saveOk = true, loadNote = null, recNote = null;
 const ui = {tool:null, asOf:today(), draft:null, acctForm:null, ledgerAcct:null, ledgerYear:"all",
             jYear:"all", jFilter:"", notice:null};
 
 function blank(){
-  return {schema:SCHEMA, company:"", fyEnd:12, seq:1, changes:0, lastExport:null, accounts:[], entries:[]};
+  return {schema:SCHEMA, company:"", fyEnd:12, view:"stmts", seq:1, changes:0, lastExport:null, accounts:[], entries:[], recurring:[]};
 }
 function demoAccounts(r){
   return DEMO_COA.map(([num,name,type,sub]) => ({id:r.seq++, num, name, type, sub, active:true}));
@@ -327,6 +369,7 @@ function normalize(r){
   r.schema = SCHEMA;
   r.company = String(r.company||"");
   r.fyEnd = Math.min(12, Math.max(1, Math.round(+r.fyEnd) || 12));
+  r.view = r.view==="tb" ? "tb" : "stmts";
   r.changes = +r.changes || 0;
   if(r.lastExport===undefined) r.lastExport = null;
   let max = 0;
@@ -337,11 +380,24 @@ function normalize(r){
   });
   r.entries = r.entries.filter(e => e && validDate(e.date) && Array.isArray(e.lines)).map(e => {
     max = Math.max(max, +e.id||0);
-    return {id:+e.id, date:e.date, ref:String(e.ref||""), memo:String(e.memo||""),
-            lines:e.lines.map(l => ({acct:+l.acct, dr:Math.max(0,Math.round(+l.dr||0)), cr:Math.max(0,Math.round(+l.cr||0))}))};
+    const out = {id:+e.id, date:e.date, ref:String(e.ref||""), memo:String(e.memo||""), lines:cleanLines(e.lines)};
+    if(e.rec!=null) out.rec = +e.rec;
+    return out;
+  });
+  if(!Array.isArray(r.recurring)) r.recurring = [];
+  r.recurring = r.recurring.filter(t => t && validDate(t.anchor) && Array.isArray(t.lines) && UNITS[t.unit]).map(t => {
+    max = Math.max(max, +t.id||0);
+    return {id:+t.id, ref:String(t.ref||""), memo:String(t.memo||""), lines:cleanLines(t.lines),
+            anchor:t.anchor, k:Math.max(0,+t.k||0), every:Math.max(1,Math.round(+t.every)||1), unit:t.unit,
+            end:t.end==="date" ? "date" : "count", count:Math.max(1,Math.round(+t.count)||1), until:validDate(t.until) ? t.until : "",
+            posted:Math.max(0,+t.posted||0), lastDate:validDate(t.lastDate) ? t.lastDate : "",
+            status:["active","ended","done"].includes(t.status) ? t.status : "active"};
   });
   r.seq = Math.max(+r.seq||1, max+1);
   return r;
+}
+function cleanLines(ls){
+  return ls.map(l => ({acct:+l.acct, dr:Math.max(0,Math.round(+l.dr||0)), cr:Math.max(0,Math.round(+l.cr||0))}));
 }
 
 function load(){
@@ -390,6 +446,12 @@ function usage(){
   for(const e of root.entries) for(const id of new Set(e.lines.map(l => l.acct))) m.set(id,(m.get(id)||0)+1);
   return m;
 }
+// Accounts a live schedule will post to. They can't be deleted either, or a future occurrence would point at nothing.
+function recUsage(){
+  const s = new Set();
+  for(const t of root.recurring) if(t.status!=="done") for(const l of t.lines) s.add(l.acct);
+  return s;
+}
 
 /* ---------- ledger math ---------- */
 // Debit-minus-credit per account over [from, to]; from may be null for "since the beginning".
@@ -436,17 +498,23 @@ function renderBanners(){
   const bad = root ? unbalanced() : [];
   if(bad.length) h += '<div class="banner red">' + bad.length + ' entr' + (bad.length===1?'y does':'ies do') + ' not balance (#' + bad.map(e => e.id).join(", #") + '). The statements will be out by the same amount until ' + (bad.length===1?'it is':'they are') + ' fixed.</div>';
   if(loadNote) h += '<div class="banner amber">' + esc(loadNote) + '</div>';
+  if(recNote) h += '<div class="banner blue"><span>' + esc(recNote) + '</span><button class="small" onclick="recNote=null;renderBanners()">Dismiss</button></div>';
   $("banners").innerHTML = h;
 }
 
 const TOOLS = [["entry","New entry"],["journal","Journal"],["coa","Chart of accounts"],["ledger","Ledger"],["settings","Settings & backup"]];
 function renderToolbar(){
-  $("toolbar").innerHTML = TOOLS.map(([k,l]) =>
-    '<button class="' + (k==="entry"?'primary':'') + '" onclick="openTool(\'' + k + '\')">' + l + '</button>').join("");
+  const n = reviewCount();
+  $("toolbar").innerHTML = TOOLS.map(([k,l]) => {
+    if(k!=="entry") return '<button onclick="openTool(\'' + k + '\')">' + l + '</button>';
+    // A finished schedule is flagged on the button you reach for anyway, and it opens straight to the review.
+    return n ? '<button class="primary attn" onclick="openTool(\'recurring\')" title="' + n + ' recurring schedule' + (n===1?' has':'s have') + ' finished — review">' + l + '<span class="badge">' + n + '</span></button>'
+             : '<button class="primary" onclick="openTool(\'entry\')">' + l + '</button>';
+  }).join("");
 }
 // Closing keeps any half-typed entry in ui.draft, so a stray click on the backdrop loses nothing.
 function openTool(k){
-  if(k==="entry" && ui.draft && ui.draft.id!=null) ui.draft = null;  // "New entry" never reopens an edit
+  if((k==="entry" || k==="recurring") && ui.draft && (ui.draft.id!=null || ui.draft.recId!=null)) ui.draft = null;  // never reopen an edit
   ui.tool = k;
   ui.notice = null;
   renderTool();
@@ -459,6 +527,7 @@ function renderTool(){
   document.body.classList.toggle("locked", open);
   if(!open){ $("tool").innerHTML = ""; return; }
   if(ui.tool==="entry") renderEntry();
+  else if(ui.tool==="recurring") renderRecurring();
   else if(ui.tool==="journal") renderJournal();
   else if(ui.tool==="coa") renderCoA();
   else if(ui.tool==="ledger") renderLedger();
@@ -467,11 +536,12 @@ function renderTool(){
 function noticeHtml(){
   return ui.notice ? '<div class="' + (ui.notice.ok?'okmsg':'err') + '">' + esc(ui.notice.text) + '</div>' : '';
 }
-function afterChange(){ renderTop(); renderBanners(); renderReports(); }
+function afterChange(){ renderTop(); renderBanners(); renderToolbar(); renderReportsHead(); renderReports(); }
 
 /* ---------- journal entry ---------- */
 const blankLine = () => ({acct:"", dr:"", cr:""});
-function newDraft(date){ return {id:null, date:date||today(), ref:"", memo:"", lines:[blankLine(), blankLine()]}; }
+const blankRec = () => ({on:false, every:"1", unit:"month", end:"count", count:"12", until:""});
+function newDraft(date){ return {id:null, recId:null, date:date||today(), ref:"", memo:"", lines:[blankLine(), blankLine()], rec:blankRec()}; }
 
 function acctOptions(sel){
   let h = '<option value="">— choose account —</option>';
@@ -484,17 +554,34 @@ function acctOptions(sel){
   return h;
 }
 
+function entryNav(){
+  const n = reviewCount(), live = root.recurring.filter(t => t.status==="active").length;
+  return '<div class="seg" style="margin-bottom:14px">'
+    + '<button class="' + (ui.tool==="entry"?'on':'') + '" onclick="openTool(\'entry\')">Journal entry</button>'
+    + '<button class="' + (ui.tool==="recurring"?'on':'') + '" onclick="openTool(\'recurring\')">Recurring'
+    + (n ? '<span class="badge">' + n + '</span>' : live ? ' <span class="muted">' + live + '</span>' : '') + '</button></div>';
+}
 function renderEntry(){
   const d = ui.draft || (ui.draft = newDraft());
-  const editing = d.id!=null;
-  setTitle(editing ? 'Edit journal entry #' + d.id : 'New journal entry', editing ? '<span class="pill info">Editing</span>' : '');
+  const editing = d.id!=null, tmpl = d.recId!=null;
+  const posted = editing && root.entries.find(e => e.id===d.id);
+  setTitle(tmpl ? 'Edit recurring entry' : editing ? 'Edit journal entry #' + d.id : 'New journal entry',
+           tmpl ? '<span class="pill info">Recurring</span>' : editing ? '<span class="pill info">Editing</span>' : '');
   if(!root.accounts.some(a => a.active)){
-    $("tool").innerHTML = '<div class="muted">Your chart of accounts is empty, so there is nothing to post to yet. Add the accounts you use first.</div>'
+    $("tool").innerHTML = entryNav() + '<div class="muted">Your chart of accounts is empty, so there is nothing to post to yet. Add the accounts you use first.</div>'
       + '<div class="btnrow"><button class="primary" onclick="openTool(\'coa\')">Open chart of accounts</button></div>';
     return;
   }
-  let h = '<div class="fields entryhead">'
-     + '<div><label>Date</label><input type="date" id="jeDate" value="' + esc(d.date) + '" oninput="ui.draft.date=this.value"></div>'
+  let h = entryNav();
+  const n = reviewCount();
+  if(n && !tmpl) h += '<div class="banner amber" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>' + n + ' recurring schedule' + (n===1?' has':'s have') + ' finished and ' + (n===1?'needs':'need') + ' a review.</span><button class="small warn" onclick="openTool(\'recurring\')">Review</button></div>';
+  if(posted && posted.rec!=null) h += '<div class="hint" style="margin:0 0 10px">Posted by a recurring schedule. Changes here affect this entry only — edit the schedule under Recurring to change future ones.</div>';
+  if(tmpl){
+    const t = recById(d.recId);
+    h += '<div class="hint" style="margin:0 0 10px">Changes apply to occurrences that have not posted yet. The ' + t.posted + ' already in the journal stay as they are — edit those individually.</div>';
+  }
+  h += '<div class="fields entryhead">'
+     + '<div><label>' + (tmpl ? 'Next occurrence' : 'Date') + '</label><input type="date" id="jeDate" value="' + esc(d.date) + '" oninput="ui.draft.date=this.value;recPreview()"></div>'
      + '<div><label>Ref / check #</label><input value="' + esc(d.ref) + '" oninput="ui.draft.ref=this.value"></div>'
      + '<div class="wide"><label>Memo</label><input value="' + esc(d.memo) + '" oninput="ui.draft.memo=this.value" placeholder="What happened"></div></div>';
   h += '<div class="scroll" style="margin-top:12px"><table class="lines"><thead><tr><th style="width:26px">#</th><th>Account</th>'
@@ -510,14 +597,87 @@ function renderEntry(){
      + '<td class="num" id="tDr"></td><td class="num" id="tCr"></td><td></td></tr></tfoot></table></div>';
   h += '<div class="btnrow"><button onclick="addLine()">+ Add line</button>'
      + '<button onclick="fillBalance()" title="Put the difference on the last empty line">Balance it</button>'
-     + '<span id="tDiff"></span><span style="flex:1"></span>'
-     + (editing ? '<button class="danger" onclick="deleteEntry(' + d.id + ')">Delete entry</button><button onclick="cancelEdit()">Cancel</button>'
-                : '<button onclick="clearDraft()">Clear</button>')
-     + '<button class="primary" onclick="postEntry()">' + (editing ? 'Save changes' : 'Post entry') + '</button></div>';
+     + '<span id="tDiff"></span></div>';
+  if(!editing) h += recBlock(d);
+  h += '<div class="btnrow"><span style="flex:1"></span>'
+     + (tmpl ? '<button class="danger" onclick="deleteRec(' + d.recId + ')">Delete schedule</button><button onclick="cancelEdit()">Cancel</button>'
+       : editing ? '<button class="danger" onclick="deleteEntry(' + d.id + ')">Delete entry</button><button onclick="cancelEdit()">Cancel</button>'
+       : '<button onclick="clearDraft()">Clear</button>')
+     + '<button class="primary" onclick="postEntry()">' + (tmpl ? 'Save schedule' : editing ? 'Save changes' : d.rec.on ? 'Post &amp; schedule' : 'Post entry') + '</button></div>';
   h += '<div class="msg" id="entryMsg">' + noticeHtml() + '</div>';
   h += '<div class="hint">Each line takes a debit or a credit, not both. Lines left without an amount are dropped when you post.</div>';
   $("tool").innerHTML = h;
   entryTotals();
+  recPreview();
+}
+
+/* ---------- recurring: the form block ---------- */
+function recBlock(d){
+  const r = d.rec, tmpl = d.recId!=null;
+  let h = '<div class="recbox">';
+  if(!tmpl) h += '<label class="chk"><input type="checkbox"' + (r.on?' checked':'') + ' onchange="ui.draft.rec.on=this.checked;renderEntry()"> Make this recurring</label>';
+  if(r.on || tmpl){
+    const t = tmpl ? recById(d.recId) : null;
+    h += '<div class="fields recfields">'
+       + '<div><label>Repeats every</label><input type="number" min="1" max="99" value="' + esc(r.every) + '" oninput="ui.draft.rec.every=this.value;recPreview()"></div>'
+       + '<div><label>Period</label><select onchange="ui.draft.rec.unit=this.value;recPreview()">'
+       + Object.keys(UNITS).map(k => '<option value="' + k + '"' + (k===r.unit?' selected':'') + '>' + UNITS[k].label + '</option>').join("") + '</select></div>'
+       + '<div><label>Stops</label><select onchange="ui.draft.rec.end=this.value;renderEntry()">'
+       + '<option value="count"' + (r.end==="count"?' selected':'') + '>After a number of times</option>'
+       + '<option value="date"' + (r.end==="date"?' selected':'') + '>On a date</option></select></div>'
+       + (r.end==="count"
+          ? '<div><label>Times in all' + (t ? ' (' + t.posted + ' posted)' : ', this one included') + '</label><input type="number" min="2" max="999" value="' + esc(r.count) + '" oninput="ui.draft.rec.count=this.value;recPreview()"></div>'
+          : '<div><label>Last date</label><input type="date" value="' + esc(r.until) + '" oninput="ui.draft.rec.until=this.value;recPreview()"></div>')
+       + '</div><div class="hint" id="recPrev"></div>';
+  }
+  return h + '</div>';
+}
+// Reads the schedule fields off the draft. Returns a spec or the reason it isn't one.
+function parseRec(d){
+  const r = d.rec, t = d.recId!=null ? recById(d.recId) : null, already = t ? t.posted : 0;
+  const every = +r.every;
+  if(!validDate(d.date)) return {err:"Give it a " + (t ? "next occurrence date." : "date.")};
+  if(!Number.isInteger(every) || every<1 || every>99) return {err:"Repeats every takes a whole number from 1 to 99."};
+  const s = {anchor:d.date, every, unit:r.unit, end:r.end, count:0, until:""};
+  if(r.end==="count"){
+    s.count = +r.count;
+    if(!Number.isInteger(s.count) || s.count<1 || s.count>999) return {err:"Times in all takes a whole number up to 999."};
+    if(!t && s.count<2) return {err:"A recurring entry needs at least two occurrences — for one, just post it."};
+    if(t && s.count<=already) return {err:"Times in all has to be more than the " + already + " already posted. To end the schedule instead, use Stop in the Recurring list."};
+  }else{
+    if(!validDate(r.until)) return {err:"Give the schedule a last date."};
+    s.until = r.until;
+    const first = t ? d.date : UNITS[s.unit].step(d.date, every);   // a new schedule's first date is this entry itself
+    if(s.until<first) return {err:t ? "The last date is before the next occurrence, so nothing would post." : "The last date comes before the second occurrence, so this would never repeat."};
+  }
+  s.remaining = r.end==="count" ? s.count - already : null;
+  return s;
+}
+// The dates this spec will post, in order, starting with the anchor. Capped: a long weekly schedule does not need listing.
+function specDates(s, max){
+  const out = [];
+  for(let k=0; out.length<max; k++){
+    if(s.end==="count" && k>=s.remaining) break;
+    const d = UNITS[s.unit].step(s.anchor, k*s.every);
+    if(s.end==="date" && d>s.until) break;
+    out.push(d);
+  }
+  return out;
+}
+function specCount(s){ return s.end==="count" ? s.remaining : specDates(s, 5000).length; }
+function recPreview(){
+  const el = $("recPrev"), d = ui.draft;
+  if(!el || !d || !(d.rec.on || d.recId!=null)) return;
+  const s = parseRec(d);
+  if(s.err){ el.innerHTML = '<span style="color:var(--amber)">' + esc(s.err) + '</span>'; return; }
+  const n = specCount(s), ds = specDates(s, 3), last = specDates(s, n).pop();
+  const T = today(), due = specDates(s, n).filter(x => x<=T).length - (d.recId==null && d.date<=T ? 1 : 0);
+  let h = (d.recId!=null ? n + ' more to post: ' : 'Posts ' + n + ' time' + (n===1?'':'s') + ': ')
+        + ds.map(gD).join(", ") + (n>3 ? ' … ' + gD(last) : '') + '.';
+  if(s.unit!=="week" && +s.anchor.slice(8,10)>28) h += ' In shorter months it lands on the last day of the month.';
+  if(due>0) h += ' <b style="color:var(--amber)">' + due + ' of these ' + (due===1?'is':'are') + ' already due and will post as soon as you save.</b>';
+  h += ' Later ones post on their date, the next time the books are open on or after it.';
+  el.innerHTML = h;
 }
 function setAmt(i, col, v){ ui.draft.lines[i][col ? "cr" : "dr"] = v; entryTotals(); }
 function draftTotals(){
@@ -552,10 +712,11 @@ function fillBalance(){
   renderEntry();
 }
 function clearDraft(){ ui.draft = newDraft(ui.draft && ui.draft.date); ui.notice = null; renderEntry(); }
-function cancelEdit(){ ui.draft = null; ui.notice = null; ui.tool = "journal"; renderTool(); }
+function cancelEdit(){ const back = ui.draft && ui.draft.recId!=null ? "recurring" : "journal"; ui.draft = null; ui.notice = null; ui.tool = back; renderTool(); }
 
-function postEntry(){
-  const d = ui.draft, errs = [], lines = [];
+// Shared by one-off entries and schedules: the same balance rules apply to both.
+function validateLines(d){
+  const errs = [], lines = [];
   if(!validDate(d.date)) errs.push("Give the entry a date.");
   d.lines.forEach((l,i) => {
     const dr = toCents(l.dr), cr = toCents(l.cr), n = i+1;
@@ -570,13 +731,43 @@ function postEntry(){
     if(lines.length<2) errs.push("An entry needs at least two lines with amounts.");
     else if(tdr!==tcr) errs.push((tdr>tcr?"Debits":"Credits") + " exceed " + (tdr>tcr?"credits":"debits") + " by " + fmt$(Math.abs(tdr-tcr)) + ". Entries must balance to post.");
   }
-  if(errs.length){ $("entryMsg").innerHTML = errs.map(e => '<div class="err">' + esc(e) + '</div>').join(""); return; }
+  return {errs, lines, tdr};
+}
+function showErrs(errs){ $("entryMsg").innerHTML = errs.map(e => '<div class="err">' + esc(e) + '</div>').join(""); }
 
-  const rec = {id: d.id!=null ? d.id : root.seq++, date:d.date, ref:d.ref.trim(), memo:d.memo.trim(), lines};
+function postEntry(){
+  const d = ui.draft;
+  if(d.recId!=null) return saveSchedule();
+  const v = validateLines(d), errs = v.errs;
+  const spec = d.rec.on && d.id==null ? parseRec(d) : null;
+  if(spec && spec.err) errs.push(spec.err);
+  if(errs.length) return showErrs(errs);
+
+  let t = null, due = 0;
+  if(spec){
+    due = specDates(spec, specCount(spec)).filter(x => x<=today()).length - (d.date<=today() ? 1 : 0);
+    // A warning, not a veto: backdating a schedule is legitimate, but a year of weekly entries arriving at once should not be a surprise.
+    if(due>12 && !confirm(due + " occurrences of this schedule are already due and will be posted right away, on top of this entry. Post them all?")) return;
+  }
+  const rec = {id: d.id!=null ? d.id : root.seq++, date:d.date, ref:d.ref.trim(), memo:d.memo.trim(), lines:v.lines};
   const i = root.entries.findIndex(e => e.id===rec.id);
-  if(i>=0) root.entries[i] = rec; else root.entries.push(rec);
+  if(i>=0){ const old = root.entries[i]; if(old.rec!=null) rec.rec = old.rec; root.entries[i] = rec; }
+  else root.entries.push(rec);
+  if(spec){
+    t = {id:root.seq++, ref:rec.ref, memo:rec.memo, lines:v.lines.map(l => ({...l})), anchor:spec.anchor, k:1,
+         every:spec.every, unit:spec.unit, end:spec.end, count:spec.count, until:spec.until,
+         posted:1, lastDate:rec.date, status:"active"};
+    rec.rec = t.id;
+    root.recurring.push(t);
+  }
+  const caught = catchUp();
   const saved = commit();
-  let text = (i>=0 ? "Saved changes to entry #" : "Posted entry #") + rec.id + " — " + fmt$(tdr) + " on " + fmtD(rec.date) + ".";
+  let text = (i>=0 ? "Saved changes to entry #" : "Posted entry #") + rec.id + " — " + fmt$(v.tdr) + " on " + fmtD(rec.date) + ".";
+  if(t){
+    text += " Scheduled " + freqText(t).toLowerCase() + ", " + (t.end==="count" ? t.count + " times in all" : "through " + fmtD(t.until)) + ".";
+    if(caught.posted) text += " " + caught.posted + " more that were already due have been posted too.";
+    text += t.status==="active" ? " Next: " + fmtD(nextDate(t)) + "." : " That completes the schedule.";
+  }
   if(rec.date>ui.asOf) text += " It is dated after the statements' as-of date (" + fmtD(ui.asOf) + "), so it will not show below until you move that date.";
   else if(fyOf(rec.date)!==fyOf(ui.asOf)) text += " It falls in " + fyLabel(fyOf(rec.date)) + ", outside the fiscal year the statements are showing.";
   if(!saved) text += " Not saved to this browser — see the warning above.";
@@ -587,7 +778,7 @@ function postEntry(){
 function editEntry(id){
   const e = root.entries.find(x => x.id===id);
   if(!e) return;
-  ui.draft = {id:e.id, date:e.date, ref:e.ref, memo:e.memo,
+  ui.draft = {id:e.id, recId:null, date:e.date, ref:e.ref, memo:e.memo, rec:blankRec(),
               lines:e.lines.map(l => ({acct:String(l.acct), dr:plain(l.dr), cr:plain(l.cr)}))};
   ui.notice = null; ui.tool = "entry";
   renderTool();
@@ -602,6 +793,133 @@ function deleteEntry(id){
   ui.notice = {ok:saved, text:"Deleted entry #" + id + "." + (saved ? "" : " Not saved to this browser.")};
   ui.tool = "journal";
   renderTool(); afterChange();
+}
+
+/* ---------- recurring: schedules ----------
+   A schedule is the entry's lines plus a rule. Occurrence k falls on step(anchor, k × every). The
+   entry you post is occurrence 0, so a new schedule starts at k = 1. Occurrences are posted as
+   ordinary entries once their date arrives — never ahead of time, so the books never hold a future
+   rent payment that might not happen. */
+const recById = id => root.recurring.find(t => t.id===id);
+const nextDate = t => UNITS[t.unit].step(t.anchor, t.k*t.every);
+const isDone = t => t.end==="count" ? t.posted>=t.count : nextDate(t)>t.until;
+const reviewCount = () => root ? root.recurring.filter(t => t.status==="ended").length : 0;
+const freqText = t => t.every===1 ? UNITS[t.unit].one : "Every " + t.every + " " + UNITS[t.unit].noun;
+
+// Posts every occurrence that has come due, and marks schedules that have run their course for review.
+function catchUp(){
+  const T = today();
+  let posted = 0, ended = 0;
+  for(const t of root.recurring){
+    if(t.status!=="active") continue;
+    for(let g=0; g<5000 && !isDone(t) && nextDate(t)<=T; g++){
+      const d = nextDate(t);
+      root.entries.push({id:root.seq++, date:d, ref:t.ref, memo:t.memo, rec:t.id, lines:t.lines.map(l => ({...l}))});
+      t.posted++; t.k++; t.lastDate = d; posted++;
+    }
+    if(isDone(t)){ t.status = "ended"; ended++; }
+  }
+  return {posted, ended};
+}
+function catchUpNote(c){
+  const parts = [];
+  if(c.posted) parts.push("Posted " + c.posted + " recurring entr" + (c.posted===1?"y":"ies") + " that came due. " + (c.posted===1?"It is":"They are") + " in the Journal, marked ↻.");
+  if(c.ended) parts.push(c.ended + " schedule" + (c.ended===1?" has":"s have") + " finished — see New entry → Recurring.");
+  return parts.join(" ");
+}
+
+function editRec(id, extend){
+  const t = recById(id);
+  if(!t) return;
+  const r = {on:true, every:String(t.every), unit:t.unit, end:t.end, count:String(t.count), until:t.until};
+  // "Extend" pre-fills the same run again, so a finished 12-month schedule offers 24 in all.
+  if(extend){ if(t.end==="count") r.count = String(t.count + t.posted); else r.until = addMonths(t.until, 12); }
+  ui.draft = {id:null, recId:id, date:nextDate(t), ref:t.ref, memo:t.memo, rec:r,
+              lines:t.lines.map(l => ({acct:String(l.acct), dr:plain(l.dr), cr:plain(l.cr)}))};
+  ui.notice = null; ui.tool = "entry";
+  renderTool();
+  $("tool").scrollTop = 0;
+}
+function saveSchedule(){
+  const d = ui.draft, t = recById(d.recId);
+  if(!t) return;
+  const v = validateLines(d), errs = v.errs, spec = parseRec(d);
+  if(spec.err) errs.push(spec.err);
+  if(errs.length) return showErrs(errs);
+  const due = specDates(spec, specCount(spec)).filter(x => x<=today()).length;
+  if(due>12 && !confirm(due + " occurrences are already due and will be posted right away. Post them all?")) return;
+  // Only a changed date or rhythm re-anchors the schedule. Otherwise a month-end schedule keeps landing on month ends.
+  if(d.date!==nextDate(t) || spec.every!==t.every || spec.unit!==t.unit){ t.anchor = d.date; t.k = 0; }
+  Object.assign(t, {ref:d.ref.trim(), memo:d.memo.trim(), lines:v.lines, every:spec.every, unit:spec.unit, end:spec.end,
+                    count:spec.end==="count" ? spec.count : t.count, until:spec.until, status:"active"});
+  const c = catchUp(), saved = commit();
+  let text = "Saved the schedule.";
+  if(c.posted) text += " " + c.posted + " occurrence" + (c.posted===1?" was":"s were") + " already due and " + (c.posted===1?"has":"have") + " been posted.";
+  text += t.status==="active" ? " Next: " + fmtD(nextDate(t)) + "." : " That completes it.";
+  ui.notice = {ok:saved, text: text + (saved ? "" : " Not saved to this browser.")};
+  ui.draft = null; ui.tool = "recurring";
+  renderTool(); afterChange();
+}
+function setRecStatus(id, status, text){
+  const t = recById(id);
+  t.status = status;
+  const saved = commit();
+  ui.notice = {ok:saved, text};
+  renderTool(); afterChange();
+}
+function stopRec(id){
+  const t = recById(id);
+  if(!confirm("Stop “" + (t.memo || "this schedule") + "”? Nothing further will post. The " + t.posted + " entr" + (t.posted===1?"y":"ies") + " it has posted stay in the journal.")) return;
+  setRecStatus(id, "done", "Stopped. It is under Archived if you want to restart it.");
+}
+function deleteRec(id){
+  const t = recById(id);
+  if(!confirm("Delete the schedule “" + (t.memo || "untitled") + "”? The " + t.posted + " entr" + (t.posted===1?"y":"ies") + " it has posted stay in the journal.")) return;
+  root.recurring = root.recurring.filter(x => x.id!==id);
+  const saved = commit();
+  ui.draft = null;
+  ui.notice = {ok:saved, text:"Schedule deleted. Its posted entries are untouched."};
+  ui.tool = "recurring";
+  renderTool(); afterChange();
+}
+function renderRecurring(){
+  setTitle("Recurring entries");
+  let h = entryNav() + '<div class="msg">' + noticeHtml() + '</div>';
+  if(!root.recurring.length){
+    $("tool").innerHTML = h + '<div class="muted">No recurring entries yet. Tick <b>Make this recurring</b> on a journal entry and it will show up here.</div>';
+    return;
+  }
+  const g = {ended:[], active:[], done:[]};
+  for(const t of root.recurring) g[t.status].push(t);
+  const sortBy = f => (a,b) => f(a).localeCompare(f(b));
+  const desc = t => '<td>' + esc(t.memo || "(no memo)") + (t.ref ? ' <span class="muted">' + esc(t.ref) + '</span>' : '')
+    + '<div class="muted">' + esc(t.lines.map(l => acctById(l.acct)).filter(Boolean).map(a => a.name).join(" · ")) + '</div></td>'
+    + '<td class="num">' + money(entryTotal(t)) + '</td><td>' + freqText(t) + '</td>';
+  const table = (col, rows) => '<div class="scroll"><table><thead><tr><th>Entry</th><th class="num">Amount</th><th>Repeats</th><th>' + col + '</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  const history = t => 'Posted ' + t.posted + '×' + (t.lastDate ? ', last ' + gD(t.lastDate) : '');
+  if(g.ended.length){
+    h += '<div class="banner amber">' + (g.ended.length===1 ? 'This schedule has run its course. Extend it to keep it going, or mark it reviewed to archive it.'
+                                                            : 'These schedules have run their course. Extend one to keep it going, or mark it reviewed to archive it.')
+       + ' The entries already posted stay in the journal either way.</div>';
+    h += table("Finished", g.ended.sort(sortBy(t => t.lastDate)).map(t => '<tr>' + desc(t) + '<td>' + history(t) + '</td><td class="act">'
+      + '<button class="small warn" onclick="editRec(' + t.id + ',true)">Extend</button> '
+      + '<button class="small" onclick="setRecStatus(' + t.id + ',\'done\',\'Marked reviewed and archived.\')">Mark reviewed</button></td></tr>').join(""));
+  }
+  if(g.active.length){
+    h += '<div class="head" style="margin-top:' + (g.ended.length ? 18 : 0) + 'px">Active</div>';
+    h += table("Next", g.active.sort(sortBy(nextDate)).map(t => '<tr>' + desc(t) + '<td>' + gD(nextDate(t)) + '<div class="muted">'
+      + (t.end==="count" ? (t.count - t.posted) + ' of ' + t.count + ' left' : 'through ' + fmtD(t.until)) + '</div></td><td class="act">'
+      + '<button class="small" onclick="editRec(' + t.id + ')">Edit</button> '
+      + '<button class="small" onclick="stopRec(' + t.id + ')">Stop</button> '
+      + '<button class="small danger" onclick="deleteRec(' + t.id + ')">Delete</button></td></tr>').join(""));
+  }
+  if(g.done.length){
+    h += '<details><summary>Archived (' + g.done.length + ')</summary>' + table("History", g.done.map(t => '<tr>' + desc(t) + '<td>' + history(t) + '</td><td class="act">'
+      + '<button class="small" onclick="editRec(' + t.id + ',true)">Restart</button> '
+      + '<button class="small danger" onclick="deleteRec(' + t.id + ')">Delete</button></td></tr>').join("")) + '</details>';
+  }
+  h += '<div class="hint">Occurrences post themselves on their date, the next time the books are open on or after it. They are ordinary journal entries, marked ↻, and you can edit any one of them without touching the schedule.</div>';
+  $("tool").innerHTML = h;
 }
 
 /* ---------- journal list ---------- */
@@ -633,7 +951,8 @@ function renderJournalRows(){
       const a = acctById(l.acct);
       h += '<tr' + (j===0?' class="grp"':'') + '>';
       if(j===0) h += '<td rowspan="' + n + '" style="white-space:nowrap">' + fmtD(e.date) + '</td><td rowspan="' + n + '" class="muted">' + e.id + '</td>'
-                   + '<td rowspan="' + n + '">' + esc(e.ref) + '</td><td rowspan="' + n + '">' + esc(e.memo) + '</td>';
+                   + '<td rowspan="' + n + '">' + esc(e.ref) + '</td><td rowspan="' + n + '">' + esc(e.memo)
+                   + (e.rec!=null ? ' <span class="pill info" title="Posted by a recurring schedule">↻</span>' : '') + '</td>';
       h += '<td class="' + (l.dr?'dr':'cr') + '">' + esc(acctLabel(a)) + '</td><td class="num">' + (l.dr?money(l.dr):'') + '</td><td class="num">' + (l.cr?money(l.cr):'') + '</td>';
       if(j===0) h += '<td rowspan="' + n + '" class="act"><button class="small" onclick="editEntry(' + e.id + ')">Edit</button></td>';
       h += '</tr>';
@@ -651,7 +970,7 @@ function subOptions(type, sel){
 }
 function renderCoA(){
   const f = ui.acctForm || (ui.acctForm = blankAcctForm());
-  const use = usage(), pos = sums(null, ui.asOf);
+  const use = usage(), sched = recUsage(), pos = sums(null, ui.asOf);
   const editing = f.id!=null, used = editing && use.get(f.id);
   setTitle("Chart of accounts", '<span class="muted">Balances as of ' + gD(ui.asOf) + '</span>');
   let h = '<div class="fields acctform">'
@@ -678,6 +997,7 @@ function renderCoA(){
          + '<button class="small" onclick="editAcct(' + a.id + ')">Edit</button> '
          + '<button class="small" onclick="toggleAcct(' + a.id + ')" title="' + (a.active?'Hide it from the entry form; history and statements are unaffected':'Show it in the entry form again') + '">' + (a.active?'Deactivate':'Reactivate') + '</button> '
          + (n ? '<button class="small danger" disabled title="Used in ' + n + ' entr' + (n===1?'y':'ies') + ' — deactivate it instead">Delete</button>'
+            : sched.has(a.id) ? '<button class="small danger" disabled title="A recurring schedule posts to it — stop or edit that schedule first">Delete</button>'
               : '<button class="small danger" onclick="deleteAcct(' + a.id + ')">Delete</button>')
          + '</td></tr>';
     }
@@ -718,7 +1038,7 @@ function saveAcct(){
 function toggleAcct(id){ const a = acctById(id); a.active = !a.active; commit(); ui.notice = null; renderCoA(); renderTop(); }
 function deleteAcct(id){
   const a = acctById(id);
-  if(usage().get(id) || !confirm("Delete account " + acctLabel(a) + "?")) return;
+  if(usage().get(id) || recUsage().has(id) || !confirm("Delete account " + acctLabel(a) + "?")) return;
   root.accounts = root.accounts.filter(x => x.id!==id);
   if(ui.acctForm && ui.acctForm.id===id) ui.acctForm = null;
   const saved = commit();
@@ -887,11 +1207,17 @@ function setFyEnd(v){
   ui.jYear = "all"; ui.ledgerYear = "all";   // old fiscal-year filters no longer mean the same dates
   renderSettings(); renderReportsHead(); renderReports();
 }
+function setView(v){ root.view = v; save(); renderReportsHead(); renderReports(); }
 function renderReportsHead(){
-  const D = ui.asOf, fy = fyOf(D), from = fyStart(fy);
+  const D = ui.asOf, fy = fyOf(D), from = fyStart(fy), tb = root.view==="tb";
+  const fyTxt = ' · fiscal year ends ' + MONTHS[fyM()-1].slice(0,3) + ' ' + lastDay(fy, fyM()) + (fyM()===12 ? ' (calendar year)' : '');
   $("asOf").value = D;
-  $("rperiod").innerHTML = 'Balance sheet at ' + gD(D) + '<span class="vbar">|</span>income and cash flow for ' + fyLabel(fy) + ' to date, '
-    + gD(from) + ' – ' + gD(D) + ' · fiscal year ends ' + MONTHS[fyM()-1].slice(0,3) + ' ' + lastDay(fy, fyM()) + (fyM()===12 ? ' (calendar year)' : '');
+  $("viewSeg").innerHTML = '<button class="' + (tb?'':'on') + '" onclick="setView(\'stmts\')">3 statements</button>'
+                         + '<button class="' + (tb?'on':'') + '" onclick="setView(\'tb\')">Trial balance</button>';
+  $("rtitle").textContent = tb ? "Trial balance" : "Financial statements";
+  $("rperiod").innerHTML = tb
+    ? 'At ' + gD(D) + '<span class="vbar">|</span>income and expense accounts for ' + fyLabel(fy) + ' to date, from ' + gD(from) + fyTxt
+    : 'Balance sheet at ' + gD(D) + '<span class="vbar">|</span>income and cash flow for ' + fyLabel(fy) + ' to date, ' + gD(from) + ' – ' + gD(D) + fyTxt;
   const cur = fyOf(today());
   let h = '<button class="' + (D===today()?'on':'') + '" onclick="setAsOf(\'' + today() + '\')">Today</button>';
   for(const y of yearList().filter(y => y<cur).slice(0,4))
@@ -912,8 +1238,8 @@ function lines(filter, value, ncol, numCls){
   }
   return {html:out.join(""), tot, n:out.length};
 }
-function stmtCard(title, period, pill, body, foot){
-  return '<div class="card"><div class="shead"><h3>' + title + '</h3>' + (pill||'') + '</div><div class="period">' + period + '</div>'
+function stmtCard(title, period, pill, body, foot, cls){
+  return '<div class="card' + (cls ? ' ' + cls : '') + '"><div class="shead"><h3>' + title + '</h3>' + (pill||'') + '</div><div class="period">' + period + '</div>'
        + '<div class="scroll"><table class="stmt">' + body + '</table></div>' + (foot ? '<div class="hint">' + foot + '</div>' : '') + '</div>';
 }
 
@@ -1013,14 +1339,56 @@ function renderReports(){
     $("stmts").innerHTML = '<div class="card empty" style="grid-column:1/-1"><div class="muted">No entries yet. Set up your chart of accounts and post a journal entry — or load the demo from Settings &amp; backup — and the balance sheet, P&amp;L and cash flow will build here.</div></div>';
     return;
   }
-  $("stmts").innerHTML = balanceSheet(D, PE) + incomeStatement(from, D).html + cashFlow(from, D, PE);
+  $("stmts").innerHTML = root.view==="tb" ? trialBalance(D) : balanceSheet(D, PE) + incomeStatement(from, D).html + cashFlow(from, D, PE);
+}
+
+// Post-closing for past years, pre-closing for this one: balance-sheet accounts at D, income and
+// expense accounts for the fiscal year to date, and every earlier year's income inside retained
+// earnings — the same books the statements read, so the two views can never disagree.
+function trialBalance(D){
+  const fy = fyOf(D), c = positionAt(D), ytd = sums(fyStart(fy), D);
+  let prior = c.prior, tdr = 0, tcr = 0;
+  let b = '<thead><tr><th>Number</th><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead><tbody>';
+  const row = (num, name, v) => {
+    if(v>0) tdr += v; else tcr -= v;
+    return '<tr class="ac"><td>' + esc(num) + '</td><td>' + name + '</td><td class="num">' + (v>0 ? money(v) : '') + '</td><td class="num">' + (v<0 ? money(-v) : '') + '</td></tr>';
+  };
+  for(const t of TYPE_ORDER){
+    let rows = '';
+    for(const a of sortedAccts().filter(a => a.type===t)){
+      let v = (isIS(a) ? ytd : c.cum).get(a.id) || 0;
+      if(a.sub==="re" && prior){ v -= prior; prior = 0; }   // earlier years' income is a credit to retained earnings
+      if(v) rows += row(a.num, esc(a.name), v);
+    }
+    if(t==="equity" && prior){ rows += row("", "Retained earnings — earlier years' income", -prior); prior = 0; }
+    if(rows) b += '<tr class="sec"><td colspan="4">' + TYPES[t].plural + '</td></tr>' + rows;
+  }
+  b += '<tr class="tot"><td></td><td>Totals</td><td class="num">' + money(tdr) + '</td><td class="num">' + money(tcr) + '</td></tr></tbody>';
+  const pill = tdr===tcr ? '<span class="pill good">Balanced</span>' : '<span class="pill bad">Out by ' + fmt$(Math.abs(tdr-tcr)) + '</span>';
+  return stmtCard("Trial balance", "At " + gD(D), pill, b,
+    "Accounts with a zero balance are left out. Income and expense accounts restart at zero each fiscal year; everything they earned before " + fmtD(fyStart(fy)) + " is in retained earnings.", "tbcard");
 }
 
 function render(){ renderTop(); renderBanners(); renderToolbar(); renderTool(); renderReportsHead(); renderReports(); }
 
 document.addEventListener("keydown", e => { if(e.key==="Escape" && ui.tool) openTool(null); });
 
+// Coming back to a tab left open overnight still posts what came due, rather than waiting for a reload.
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState!=="visible" || !root) return;
+  const c = catchUp();
+  if(!c.posted && !c.ended) return;
+  commit();
+  recNote = catchUpNote(c);
+  afterChange();
+  if(ui.tool==="recurring") renderRecurring();
+});
+
 root = load();
+{
+  const c = catchUp();
+  if(c.posted || c.ended){ commit(); recNote = catchUpNote(c); }
+}
 render();
 </script>
 </body>

@@ -11,9 +11,11 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 ## Ideas, not started
 
 - CSV import of bank transactions, turned into draft entries.
-- Recurring entries (rent, depreciation, loan payments).
 - A comparative prior-year column on the P&L. The balance sheet already has one.
-- A trial balance view. The balance-sheet pill covers the "does it balance" question for now.
+- Recurring: a "no end" option. Left out on purpose — every schedule ends, so that each one
+  eventually comes back for review. Revisit if open-ended schedules become a nuisance to extend.
+- Recurring: warn a few weeks before a schedule finishes, not only after. Settle it once there's a
+  real schedule to see how early the warning would need to come.
 - Split out the current portion of long-term debt, and gains/losses on asset disposals, in the cash
   flow statement.
 
@@ -50,6 +52,29 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   2100/2027 not, an entry on 2028-02-29 lands in FY2028 and 2028-03-01 starts FY2029. We chose
   "last day of month" over an arbitrary day, so a Feb 28 year end never has to guess about leap years.
   (Pass 1, item 3.)
+- **Trial balance view** (pass 2, item 1). A "3 statements | Trial balance" switch sits in the
+  report header, and the choice is saved in `root.view`. Balance-sheet accounts show as of the
+  date. Income and expense accounts show fiscal-year-to-date. Earlier years' income is folded into
+  retained earnings (or a synthetic line if there's no RE account), so the trial balance and the
+  statements always read the same books. Zero balances are hidden.
+- **Recurring entries** (pass 2, item 2).
+  - Setup: a "Make this recurring" checkbox on new entries opens the schedule fields — every
+    N weeks, months, quarters or years, stopping after N times or on a date. The entry you post
+    is occurrence 1. A live preview lists the dates and says how many are already due.
+  - Posting: an occurrence posts only once its date arrives — on load, or when the tab regains
+    focus — as an ordinary entry tagged `rec`, marked ↻ in the journal. We chose never to
+    pre-post future entries, so the books hold only what has happened. A backdated schedule
+    catches up immediately, with a confirm step if more than 12 occurrences are due.
+  - Dates: occurrence k = step(anchor, k × every), always computed from the anchor, so
+    month-end schedules clamp without drifting (Jan 31 → Feb 28 → Mar 31). Week steps go
+    through `Date.UTC`, so DST can't shift them.
+  - Review: when a schedule completes, its status becomes `ended`. The New entry button then
+    gets an amber ring and a count badge, and clicking it opens the Recurring tab. From there
+    you can Extend it (pre-filled with the same run again) or mark it reviewed, which archives
+    it. Active schedules can be edited, stopped or deleted.
+  - Edits: editing a schedule changes only future occurrences. Only a changed next date or
+    rhythm re-anchors it. Posted entries are never rewritten.
+  - Accounts: an account a live schedule posts to can't be deleted.
 - **Red for negatives:** on each cash flow section subtotal, every P&L subtotal, and every equity
   line (draws are naturally red). Line items elsewhere stay neutral. Positive net income stays green,
   and other positive grand totals stay gold. (Pass 1, item 6.)
