@@ -355,7 +355,7 @@ const ui = {tool:null, asOf:today(), draft:null, acctForm:null, ledgerAcct:null,
             jYear:"all", jFilter:"", notice:null};
 
 function blank(){
-  return {schema:SCHEMA, company:"", fyEnd:12, view:"stmts", seq:1, changes:0, lastExport:null, accounts:[], entries:[], recurring:[]};
+  return {schema:SCHEMA, company:"", fyEnd:12, view:"stmts", tbMode:"drcr", seq:1, changes:0, lastExport:null, accounts:[], entries:[], recurring:[]};
 }
 function demoAccounts(r){
   return DEMO_COA.map(([num,name,type,sub]) => ({id:r.seq++, num, name, type, sub, active:true}));
@@ -370,6 +370,7 @@ function normalize(r){
   r.company = String(r.company||"");
   r.fyEnd = Math.min(12, Math.max(1, Math.round(+r.fyEnd) || 12));
   r.view = r.view==="tb" ? "tb" : "stmts";
+  r.tbMode = r.tbMode==="net" ? "net" : "drcr";
   r.changes = +r.changes || 0;
   if(r.lastExport===undefined) r.lastExport = null;
   let max = 0;
@@ -1208,11 +1209,12 @@ function setFyEnd(v){
   renderSettings(); renderReportsHead(); renderReports();
 }
 function setView(v){ root.view = v; save(); renderReportsHead(); renderReports(); }
+function setTbMode(v){ root.tbMode = v; save(); renderReports(); }
 function renderReportsHead(){
   const D = ui.asOf, fy = fyOf(D), from = fyStart(fy), tb = root.view==="tb";
   const fyTxt = ' · fiscal year ends ' + MONTHS[fyM()-1].slice(0,3) + ' ' + lastDay(fy, fyM()) + (fyM()===12 ? ' (calendar year)' : '');
   $("asOf").value = D;
-  $("viewSeg").innerHTML = '<button class="' + (tb?'':'on') + '" onclick="setView(\'stmts\')">3 statements</button>'
+  $("viewSeg").innerHTML = '<button class="' + (tb?'':'on') + '" onclick="setView(\'stmts\')">3-Statement</button>'
                          + '<button class="' + (tb?'on':'') + '" onclick="setView(\'tb\')">Trial balance</button>';
   $("rtitle").textContent = tb ? "Trial balance" : "Financial statements";
   $("rperiod").innerHTML = tb
@@ -1348,10 +1350,16 @@ function renderReports(){
 function trialBalance(D){
   const fy = fyOf(D), c = positionAt(D), ytd = sums(fyStart(fy), D);
   let prior = c.prior, tdr = 0, tcr = 0;
-  let b = '<thead><tr><th>Number</th><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead><tbody>';
+  // Single column: debits positive, credits negative, so a balanced trial balance sums to zero.
+  const one = root.tbMode==="net", cols = one ? 3 : 4;
+  const signed = v => (v<0 ? "-" : "") + money(Math.abs(v));
+  let b = '<thead><tr><th>Number</th><th>Account</th>'
+        + (one ? '<th class="num">Balance</th>' : '<th class="num">Debit</th><th class="num">Credit</th>') + '</tr></thead><tbody>';
   const row = (num, name, v) => {
     if(v>0) tdr += v; else tcr -= v;
-    return '<tr class="ac"><td>' + esc(num) + '</td><td>' + name + '</td><td class="num">' + (v>0 ? money(v) : '') + '</td><td class="num">' + (v<0 ? money(-v) : '') + '</td></tr>';
+    return '<tr class="ac"><td>' + esc(num) + '</td><td>' + name + '</td>'
+         + (one ? '<td class="num">' + signed(v) + '</td>'
+                : '<td class="num">' + (v>0 ? money(v) : '') + '</td><td class="num">' + (v<0 ? money(-v) : '') + '</td>') + '</tr>';
   };
   for(const t of TYPE_ORDER){
     let rows = '';
@@ -1361,12 +1369,17 @@ function trialBalance(D){
       if(v) rows += row(a.num, esc(a.name), v);
     }
     if(t==="equity" && prior){ rows += row("", "Retained earnings — earlier years' income", -prior); prior = 0; }
-    if(rows) b += '<tr class="sec"><td colspan="4">' + TYPES[t].plural + '</td></tr>' + rows;
+    if(rows) b += '<tr class="sec"><td colspan="' + cols + '">' + TYPES[t].plural + '</td></tr>' + rows;
   }
-  b += '<tr class="tot"><td></td><td>Totals</td><td class="num">' + money(tdr) + '</td><td class="num">' + money(tcr) + '</td></tr></tbody>';
+  b += '<tr class="tot"><td></td><td>' + (one ? 'Net' : 'Totals') + '</td>'
+     + (one ? '<td class="num">' + signed(tdr-tcr) + '</td>' : '<td class="num">' + money(tdr) + '</td><td class="num">' + money(tcr) + '</td>') + '</tr></tbody>';
   const pill = tdr===tcr ? '<span class="pill good">Balanced</span>' : '<span class="pill bad">Out by ' + fmt$(Math.abs(tdr-tcr)) + '</span>';
-  return stmtCard("Trial balance", "At " + gD(D), pill, b,
-    "Accounts with a zero balance are left out. Income and expense accounts restart at zero each fiscal year; everything they earned before " + fmtD(fyStart(fy)) + " is in retained earnings.", "tbcard");
+  const seg = '<span class="seg no-print">'
+    + '<button class="small' + (one?'':' on') + '" onclick="setTbMode(\'drcr\')">Debit / Credit</button>'
+    + '<button class="small' + (one?' on':'') + '" onclick="setTbMode(\'net\')">Single column</button></span>';
+  return stmtCard("Trial balance", "At " + gD(D), '<span class="row" style="align-items:center">' + seg + pill + '</span>', b,
+    (one ? "Debits are positive and credits negative, so the column nets to zero when the books balance. " : "")
+    + "Accounts with a zero balance are left out. Income and expense accounts restart at zero each fiscal year; everything they earned before " + fmtD(fyStart(fy)) + " is in retained earnings.", "tbcard");
 }
 
 function render(){ renderTop(); renderBanners(); renderToolbar(); renderTool(); renderReportsHead(); renderReports(); }
