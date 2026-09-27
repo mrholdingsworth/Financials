@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Books</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b0e13'/%3E%3Ctext x='16' y='24' font-size='20' font-family='monospace' font-weight='700' fill='%234d9fff' text-anchor='middle'%3EB%3C/text%3E%3C/svg%3E">
 <style>
 :root{
   color-scheme:dark;
@@ -135,7 +136,8 @@ button.attn{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--amber)}
 .menu button span{display:block;font-size:11px;color:var(--mut);margin-top:1px}
 .tbcard{grid-column:1/-1}
 .tbcard .scroll{max-width:760px}
-.tbcard .stmt tr.ac td:first-child{white-space:nowrap;width:1%}
+.tbcard .stmt tr.ac td:first-child{white-space:nowrap;width:1%;padding-left:6px;padding-right:18px}
+.tbcard .stmt td.num,.tbcard .stmt th.num{width:130px;padding-left:16px}
 .dt{color:var(--gold)}
 th.dt{color:var(--gold)}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
@@ -175,7 +177,11 @@ tr.inactive td{color:var(--mut)}
 .rctl button{padding-top:0;padding-bottom:0}
 .stmts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:14px;align-items:start}
 .stmts .card{margin-bottom:0}
-.shead{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.shead{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px 12px;min-height:24px}
+/* A card header that holds controls gets room to breathe, so the buttons don't sit on the period line. */
+.shead:has(.seg){margin-bottom:10px}
+.shead .row{gap:10px}
+.shead .seg button{padding:6px 13px}
 .shead h3{font-size:15px}
 .period{font-size:11.5px;color:var(--mut);margin-bottom:8px}
 .stmt td{border-bottom:none;padding:3px 6px}
