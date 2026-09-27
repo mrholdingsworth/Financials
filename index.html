@@ -240,6 +240,17 @@ tr.inactive td{color:var(--mut)}
     </div>
   </section>
   <section class="stmts" id="stmts"></section>
+
+  <p class="muted" style="text-align:center;margin-top:26px">
+    Your books are stored only in this browser, on this device. Keeping them safe — including exporting
+    backups from Settings &amp; backup — is your responsibility; no liability is accepted for data that is
+    lost, cleared or damaged.
+  </p>
+  <!-- Bump this on release. Separate from SCHEMA, which versions the saved data and only moves when
+       the shape of stored books changes. -->
+  <p class="muted" style="text-align:center;margin-top:4px">
+    version <span class="vbar">|</span> 1.3.2
+  </p>
 </div>
 
 <div class="modal no-print" id="toolModal" onmousedown="if(event.target===this)openTool(null)">
