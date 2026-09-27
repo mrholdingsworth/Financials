@@ -10,16 +10,16 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 
 ## Versions
 
-The version shown in the footer lives in `index.html`. Bump it on every release. It is separate
-from `SCHEMA`, which changes only when the stored shape needs a migration.
+The version shown in the footer lives in `index.html`. It is separate from `SCHEMA`, which changes
+only when the stored shape needs a migration.
 
-- 1.0.0: first release — journal, chart of accounts, ledger, backup, and the three statements.
-- 1.1.0: modal tools, empty chart of accounts, adjustable fiscal year end.
-- 1.2.0: trial balance view, recurring entries.
-- 1.2.1: single-column trial balance.
-- 1.3.0: export as PDF, Excel or CSV.
-- 1.3.1: "B" tab icon, trial balance spacing.
-- 1.3.2: version footer and data-storage disclaimer.
+**Currently 0.9, pre-release.** Steve will say when to move to **1.0**, the initial release. Don't
+bump the version on your own before then.
+
+Pre-release work so far: the journal, chart of accounts, ledger and backup; the three statements;
+modal tools; an empty starting chart of accounts; an adjustable fiscal year end; the trial balance
+(debit/credit and single-column); recurring entries; PDF/Excel/CSV export; the "B" tab icon; and the
+version footer with its data-storage disclaimer.
 
 ## Ideas, not started
 
