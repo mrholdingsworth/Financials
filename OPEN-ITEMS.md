@@ -75,6 +75,24 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
   - Edits: editing a schedule changes only future occurrences. Only a changed next date or
     rhythm re-anchors it. Posted entries are never rewritten.
   - Accounts: an account a live schedule posts to can't be deleted.
+- **Trial balance single-column view** (pass 3). Debits are positive and credits negative, with a
+  minus sign rather than parentheses — confirmed as correct, because it's the shape audit
+  software imports. The choice is saved in `root.tbMode`.
+- **Export replaces Print** (pass 3), offering PDF, Excel (.xlsx) and CSV of whatever view is
+  showing, including the single-column trial balance.
+  - Single source: each statement is built once as data (`balanceSheet()` etc. return rows), and
+    `stmtHtml()`, `toPDF()`, `toXLSX()` and `toCSV()` all read that same object. This closes off
+    the "two renderers drift" trap.
+  - No libraries, in keeping with the house rule. The .xlsx is a store-only zip, with the CRC and
+    headers written by hand. The PDF uses built-in Helvetica / Helvetica-Bold with WinAnsi
+    encoding, so no fonts are embedded. Right-aligned figures use the standard AFM glyph widths.
+  - The trial balance CSV and xlsx are import-shaped: one header row (Account number, Account
+    name, Type, then the amount columns), one row per account, and figures as plain `-1234.56`.
+    The xlsx adds a Totals line after a blank row. The statements' CSV is a readable stacked layout
+    instead.
+  - Verified: the zip CRCs, the EOCD, and every XML part parsing; the PDF xref offsets and stream
+    lengths; and a rendered PDF checked by eye.
+  - Not verified: opening the .xlsx in Excel itself — there's no Excel on this machine.
 - **Red for negatives:** on each cash flow section subtotal, every P&L subtotal, and every equity
   line (draws are naturally red). Line items elsewhere stay neutral. Positive net income stays green,
   and other positive grand totals stay gold. (Pass 1, item 6.)

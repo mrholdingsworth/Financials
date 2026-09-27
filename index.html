@@ -126,6 +126,13 @@ button.attn{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--amber)}
 .recbox input,.recbox select{background:var(--panel)}
 .recfields{margin-top:10px;grid-template-columns:120px 130px 210px 210px}
 @media(max-width:760px){.recfields{grid-template-columns:1fr 1fr}}
+.menuwrap{position:relative}
+.menu{display:none;position:absolute;right:0;top:calc(100% + 6px);z-index:20;min-width:250px;padding:5px;
+      background:var(--panel);border:1px solid var(--line2);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.menu.open{display:block}
+.rctl .menu button{display:block;width:100%;height:auto;padding:7px 10px;text-align:left;border:none;background:none;border-radius:7px}
+.rctl .menu button:hover{background:var(--bluebg);color:var(--blue)}
+.menu button span{display:block;font-size:11px;color:var(--mut);margin-top:1px}
 .tbcard{grid-column:1/-1}
 .tbcard .scroll{max-width:760px}
 .tbcard .stmt tr.ac td:first-child{white-space:nowrap;width:1%}
@@ -215,7 +222,14 @@ tr.inactive td{color:var(--mut)}
         <div><label>View</label><div class="seg" id="viewSeg"></div></div>
         <div><label for="asOf">As of</label><input type="date" id="asOf" onchange="setAsOf(this.value)"></div>
         <div class="row" id="yeBtns"></div>
-        <button onclick="window.print()">Print</button>
+        <div class="menuwrap">
+          <button id="expBtn" onclick="toggleExport(event)" aria-haspopup="true">Export ▾</button>
+          <div class="menu" id="expMenu" role="menu">
+            <button role="menuitem" onclick="doExport('pdf')">PDF<span>Formatted, one statement per page</span></button>
+            <button role="menuitem" onclick="doExport('xlsx')">Excel (.xlsx)<span>One sheet per statement, figures as numbers</span></button>
+            <button role="menuitem" onclick="doExport('csv')">CSV<span>Plain rows for import</span></button>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -1227,63 +1241,90 @@ function renderReportsHead(){
   $("yeBtns").innerHTML = h;
 }
 
-const tr = (cls, label, vals, numCls) => '<tr class="' + cls + '"><td>' + label + '</td>' + vals.map(v => '<td class="num' + (numCls ? ' ' + numCls(v) : '') + '">' + fmtA(v) + '</td>').join("") + '</tr>';
-const signCls = v => v>0 ? "pos" : v<0 ? "neg" : "";
-const negCls = v => v<0 ? "neg" : "";
-function lines(filter, value, ncol, numCls){
-  const out = [], tot = new Array(ncol).fill(0);
+/* ---------- statements as data ----------
+   Each statement is built once as plain rows of labels and cent values. The page, the PDF, the
+   workbook and the CSV all read that same object, so no export can disagree with the screen. */
+const signed = v => (v<0 ? "-" : "") + money(Math.abs(v));
+const Row = (k, label, v, tone, num) => ({k, label, v:v||null, tone:tone||null, num:num||""});
+// A label is a string, or an array of strings and {d:date} parts, so a date can be gold on screen and plain in a file.
+const segText = x => Array.isArray(x) ? x.map(p => typeof p==="string" ? p : fmtD(p.d)).join("") : String(x);
+const segHtml = x => Array.isArray(x) ? x.map(p => typeof p==="string" ? esc(p) : gD(p.d)).join("") : esc(x);
+function lines(filter, value, ncol, tone){
+  const rows = [], tot = new Array(ncol).fill(0);
   for(const a of sortedAccts().filter(filter)){
     const v = value(a);
     if(v.every(x => x===0)) continue;
     v.forEach((x,i) => tot[i] += x);
-    out.push(tr("ac", esc(a.name), v, numCls));
+    rows.push(Row("ac", a.name, v, tone));
   }
-  return {html:out.join(""), tot, n:out.length};
+  return {rows, tot, n:rows.length};
 }
-function stmtCard(title, period, pill, body, foot, cls){
-  return '<div class="card' + (cls ? ' ' + cls : '') + '"><div class="shead"><h3>' + title + '</h3>' + (pill||'') + '</div><div class="period">' + period + '</div>'
-       + '<div class="scroll"><table class="stmt">' + body + '</table></div>' + (foot ? '<div class="hint">' + foot + '</div>' : '') + '</div>';
+function toneCls(t, v){
+  if(v==null || !t) return "";
+  return t==="sign" ? (v>0 ? "pos" : v<0 ? "neg" : "") : (v<0 ? "neg" : "");
+}
+// "acct": parentheses and a dash for zero. "plain": debit/credit columns. "signed": minus signs, for import into audit software.
+function fmtV(s, v){ return v==null ? "" : s.fmt==="signed" ? signed(v) : s.fmt==="plain" ? money(v) : fmtA(v); }
+
+function stmtHtml(s){
+  const n = s.cols.length + 1 + (s.numCol ? 1 : 0);
+  let b = '';
+  if(s.showHead) b += '<thead><tr>' + (s.numCol ? '<th>Number</th><th>Account</th>' : '<th></th>')
+    + s.cols.map(c => '<th class="num' + (s.headDates ? ' dt' : '') + '">' + esc(c) + '</th>').join("") + '</tr></thead>';
+  b += '<tbody>' + s.rows.map(r => {
+    if(r.k==="gap") return '<tr class="gap"><td colspan="' + n + '"></td></tr>';
+    if(r.k==="sec" || r.k==="grp") return '<tr class="' + r.k + '"><td colspan="' + n + '">' + segHtml(r.label) + '</td></tr>';
+    return '<tr class="' + r.k + '">' + (s.numCol ? '<td>' + esc(r.num) + '</td>' : '') + '<td>' + segHtml(r.label) + '</td>'
+      + r.v.map(v => '<td class="num ' + toneCls(r.tone, v) + '">' + fmtV(s, v) + '</td>').join("") + '</tr>';
+  }).join("") + '</tbody>';
+  const pill = s.check ? '<span class="pill ' + (s.check.ok ? 'good' : 'bad') + '">' + esc(s.check.label) + '</span>' : '';
+  return '<div class="card' + (s.cls ? ' ' + s.cls : '') + '"><div class="shead"><h3>' + esc(s.title) + '</h3>'
+    + (s.extraHtml ? '<span class="row" style="align-items:center">' + s.extraHtml + pill + '</span>' : pill) + '</div>'
+    + '<div class="period">' + segHtml(s.period) + '</div>'
+    + '<div class="scroll"><table class="stmt">' + b + '</table></div>' + (s.foot ? '<div class="hint">' + esc(s.foot) + '</div>' : '') + '</div>';
 }
 
 function balanceSheet(D, PE){
   const c = positionAt(D), p = positionAt(PE);
   const v = sg => a => [sg*(c.cum.get(a.id)||0), sg*(p.cum.get(a.id)||0)];
   const of = (type, subs) => a => a.type===type && subs.includes(a.sub);
-  let b = '<thead><tr><th></th><th class="num dt">' + fmtD(D) + '</th><th class="num dt">' + fmtD(PE) + '</th></tr></thead><tbody>';
-
   const group = (label, sec, subLabel) => {
-    if(!sec.n) return {h:'', tot:[0,0]};
-    return {h:'<tr class="grp"><td colspan="3">' + label + '</td></tr>' + sec.html + (sec.n>1 || subLabel ? tr("sub", subLabel || "Total " + label.toLowerCase(), sec.tot) : ''), tot:sec.tot};
+    if(!sec.n) return {rows:[], tot:[0,0]};
+    const rows = [Row("grp", label), ...sec.rows];
+    if(sec.n>1 || subLabel) rows.push(Row("sub", subLabel || "Total " + label.toLowerCase(), sec.tot));
+    return {rows, tot:sec.tot};
   };
   const add = (...xs) => xs.reduce((t,x) => [t[0]+x.tot[0], t[1]+x.tot[1]], [0,0]);
+  const rows = [];
 
   const ca = group("Current assets", lines(of("asset",["cash","current"]), v(1), 2));
   const fa = group("Fixed assets", lines(of("asset",["fixed","contra"]), v(1), 2), "Net fixed assets");
   const oa = group("Other assets", lines(of("asset",["other"]), v(1), 2));
   const TA = add(ca, fa, oa);
-  b += '<tr class="sec"><td colspan="3">Assets</td></tr>' + ca.h + fa.h + oa.h + tr("tot", "Total assets", TA);
+  rows.push(Row("sec","Assets"), ...ca.rows, ...fa.rows, ...oa.rows, Row("tot","Total assets",TA));
 
   const cl = group("Current liabilities", lines(of("liability",["current"]), v(-1), 2));
   const ll = group("Long-term liabilities", lines(of("liability",["longterm"]), v(-1), 2));
   const TL = add(cl, ll);
-  b += '<tr class="sec"><td colspan="3">Liabilities</td></tr>' + cl.h + ll.h + ((cl.h && ll.h) ? tr("sub", "Total liabilities", TL) : '');
-  if(!cl.h && !ll.h) b += tr("ac", "No liabilities", [0,0]);
+  rows.push(Row("sec","Liabilities"), ...cl.rows, ...ll.rows);
+  if(cl.rows.length && ll.rows.length) rows.push(Row("sub","Total liabilities",TL));
+  if(!cl.rows.length && !ll.rows.length) rows.push(Row("ac","No liabilities",[0,0]));
 
-  const eq = lines(of("equity",["contrib","draws"]), v(-1), 2, negCls);
+  const eq = lines(of("equity",["contrib","draws"]), v(-1), 2, "neg");
   const reAccts = root.accounts.filter(of("equity",["re"]));
   const reBal = pos => reAccts.reduce((t,a) => t - (pos.cum.get(a.id)||0), 0);
   const RE = [reBal(c) + c.prior, reBal(p) + p.prior], NI = [c.ni, p.ni];
   const TE = [eq.tot[0]+RE[0]+NI[0], eq.tot[1]+RE[1]+NI[1]];
-  b += '<tr class="sec"><td colspan="3">Equity</td></tr>' + eq.html
-     + tr("ac", "Retained earnings", RE, negCls) + tr("ac", "Net income, current year", NI, negCls) + tr("sub", "Total equity", TE, negCls);
+  rows.push(Row("sec","Equity"), ...eq.rows, Row("ac","Retained earnings",RE,"neg"),
+            Row("ac","Net income, current year",NI,"neg"), Row("sub","Total equity",TE,"neg"));
   const TLE = [TL[0]+TE[0], TL[1]+TE[1]];
-  b += tr("tot", "Total liabilities &amp; equity", TLE) + '</tbody>';
+  rows.push(Row("tot","Total liabilities & equity",TLE));
 
-  const off = TA[0]-TLE[0], offP = TA[1]-TLE[1];
-  const pill = off===0 && offP===0 ? '<span class="pill good">Balances</span>'
-             : '<span class="pill bad">Out by ' + fmt$(Math.abs(off||offP)) + '</span>';
-  return stmtCard("Balance sheet", "At " + gD(D) + ", with the prior fiscal year end for comparison", pill, b,
-    "Net income rolls into retained earnings at each fiscal year end automatically — do not post a closing entry, or that year's income statement will read zero.");
+  const off = TA[0]-TLE[0], offP = TA[1]-TLE[1], ok = off===0 && offP===0;
+  return {title:"Balance sheet", sheet:"Balance Sheet", period:["At ",{d:D},", with the prior fiscal year end for comparison"],
+    cols:[fmtD(D), fmtD(PE)], showHead:true, headDates:true, fmt:"acct", rows,
+    check:{ok, label: ok ? "Balances" : "Out by " + fmt$(Math.abs(off||offP))},
+    foot:"Net income rolls into retained earnings at each fiscal year end automatically — do not post a closing entry, or that year's income statement will read zero."};
 }
 
 function incomeStatement(from, to){
@@ -1297,14 +1338,15 @@ function incomeStatement(from, to){
   const oe = lines(of("expense","other"), a => [-(m.get(a.id)||0)], 1);  // shown as a deduction inside "other"
   const GP = rev.tot[0] - cogs.tot[0], OP = GP - opx.tot[0], OTH = oi.tot[0] + oe.tot[0], NI = OP + OTH;
 
-  let b = '<tbody><tr class="sec"><td colspan="2">Revenue</td></tr>' + (rev.n ? rev.html : tr("ac","No revenue",[0])) + tr("sub", "Total revenue", rev.tot, negCls);
-  if(cogs.n) b += '<tr class="sec"><td colspan="2">Cost of goods sold</td></tr>' + cogs.html + tr("sub", "Gross profit", [GP], negCls);
-  b += '<tr class="sec"><td colspan="2">Operating expenses</td></tr>' + (opx.n ? opx.html : tr("ac","No operating expenses",[0])) + tr("sub", "Total operating expenses", opx.tot, negCls)
-     + '<tr class="gap"><td colspan="2"></td></tr>' + tr("sub", "Operating income", [OP], negCls);
-  if(oi.n || oe.n) b += '<tr class="sec"><td colspan="2">Other income (expense)</td></tr>' + oi.html + oe.html + tr("sub", "Net other income (expense)", [OTH], negCls);
-  b += tr("tot", "Net income", [NI], signCls) + '</tbody>';
-  const margin = rev.tot[0] ? ' · <span style="font-family:var(--mono)">' + (NI/rev.tot[0]*100).toFixed(1) + '%</span> of revenue' : '';
-  return {html: stmtCard("Profit &amp; loss", fyLabel(fyOf(to)) + " to date, " + gD(from) + " – " + gD(to) + margin, "", b), NI};
+  const rows = [Row("sec","Revenue"), ...(rev.n ? rev.rows : [Row("ac","No revenue",[0])]), Row("sub","Total revenue",rev.tot,"neg")];
+  if(cogs.n) rows.push(Row("sec","Cost of goods sold"), ...cogs.rows, Row("sub","Gross profit",[GP],"neg"));
+  rows.push(Row("sec","Operating expenses"), ...(opx.n ? opx.rows : [Row("ac","No operating expenses",[0])]),
+            Row("sub","Total operating expenses",opx.tot,"neg"), Row("gap"), Row("sub","Operating income",[OP],"neg"));
+  if(oi.n || oe.n) rows.push(Row("sec","Other income (expense)"), ...oi.rows, ...oe.rows, Row("sub","Net other income (expense)",[OTH],"neg"));
+  rows.push(Row("tot","Net income",[NI],"sign"));
+  const margin = rev.tot[0] ? " · " + (NI/rev.tot[0]*100).toFixed(1) + "% of revenue" : "";
+  return {title:"Profit & loss", sheet:"Profit & Loss", period:[fyLabel(fyOf(to)) + " to date, ", {d:from}, " – ", {d:to}, margin],
+    cols:[fyLabel(fyOf(to)) + " to date"], fmt:"acct", rows};
 }
 
 function cashFlow(from, to, PE){
@@ -1321,27 +1363,19 @@ function cashFlow(from, to, PE){
   const OPS = NI + adj.tot[0] + wc.tot[0], NET = OPS + inv.tot[0] + fin.tot[0];
   const begin = cashAt(PE), end = cashAt(to);
 
-  let b = '<tbody><tr class="sec"><td colspan="2">Operating activities</td></tr>' + tr("ac", "Net income", [NI], negCls);
-  if(adj.n) b += '<tr class="grp"><td colspan="2">Non-cash adjustments</td></tr>' + adj.html.replace(/<td>([^<]*)<\/td>/g, '<td>Depreciation — $1</td>');
-  if(wc.n) b += '<tr class="grp"><td colspan="2">Changes in working capital</td></tr>' + wc.html;
-  b += tr("sub", "Net cash from operating", [OPS], negCls);
-  b += '<tr class="sec"><td colspan="2">Investing activities</td></tr>' + (inv.n ? inv.html : tr("ac","None",[0])) + tr("sub", "Net cash from investing", inv.tot, negCls);
-  b += '<tr class="sec"><td colspan="2">Financing activities</td></tr>' + (fin.n ? fin.html : tr("ac","None",[0])) + tr("sub", "Net cash from financing", fin.tot, negCls);
-  b += '<tr class="gap"><td colspan="2"></td></tr>' + tr("sub", "Net change in cash", [NET], signCls)
-     + tr("ac", "Cash at " + gD(PE), [begin], negCls) + tr("tot", "Cash at " + gD(to), [begin+NET], negCls) + '</tbody>';
+  const rows = [Row("sec","Operating activities"), Row("ac","Net income",[NI],"neg")];
+  if(adj.n) rows.push(Row("grp","Non-cash adjustments"), ...adj.rows.map(r => ({...r, label:"Depreciation — " + r.label})));
+  if(wc.n) rows.push(Row("grp","Changes in working capital"), ...wc.rows);
+  rows.push(Row("sub","Net cash from operating",[OPS],"neg"));
+  rows.push(Row("sec","Investing activities"), ...(inv.n ? inv.rows : [Row("ac","None",[0])]), Row("sub","Net cash from investing",inv.tot,"neg"));
+  rows.push(Row("sec","Financing activities"), ...(fin.n ? fin.rows : [Row("ac","None",[0])]), Row("sub","Net cash from financing",fin.tot,"neg"));
+  rows.push(Row("gap"), Row("sub","Net change in cash",[NET],"sign"),
+            Row("ac",["Cash at ",{d:PE}],[begin],"neg"), Row("tot",["Cash at ",{d:to}],[begin+NET],"neg"));
   const ties = begin + NET === end;
-  const pill = ties ? '<span class="pill good">Ties to cash</span>' : '<span class="pill bad">Off by ' + fmt$(Math.abs(begin+NET-end)) + '</span>';
-  return stmtCard("Cash flow", "Indirect method, " + gD(from) + " – " + gD(to), pill, b,
-    "Built from the change in each balance-sheet account. Asset sales and the current portion of long-term debt are not split out.");
-}
-
-function renderReports(){
-  const D = ui.asOf, fy = fyOf(D), from = fyStart(fy), PE = fyEndDate(fy-1);
-  if(!root.entries.length){
-    $("stmts").innerHTML = '<div class="card empty" style="grid-column:1/-1"><div class="muted">No entries yet. Set up your chart of accounts and post a journal entry — or load the demo from Settings &amp; backup — and the balance sheet, P&amp;L and cash flow will build here.</div></div>';
-    return;
-  }
-  $("stmts").innerHTML = root.view==="tb" ? trialBalance(D) : balanceSheet(D, PE) + incomeStatement(from, D).html + cashFlow(from, D, PE);
+  return {title:"Cash flow", sheet:"Cash Flow", period:["Indirect method, ",{d:from}," – ",{d:to}],
+    cols:[fmtD(from) + " – " + fmtD(to)], fmt:"acct", rows,
+    check:{ok:ties, label: ties ? "Ties to cash" : "Off by " + fmt$(Math.abs(begin+NET-end))},
+    foot:"Built from the change in each balance-sheet account. Asset sales and the current portion of long-term debt are not split out."};
 }
 
 // Post-closing for past years, pre-closing for this one: balance-sheet accounts at D, income and
@@ -1349,42 +1383,366 @@ function renderReports(){
 // earnings — the same books the statements read, so the two views can never disagree.
 function trialBalance(D){
   const fy = fyOf(D), c = positionAt(D), ytd = sums(fyStart(fy), D);
-  let prior = c.prior, tdr = 0, tcr = 0;
   // Single column: debits positive, credits negative, so a balanced trial balance sums to zero.
-  const one = root.tbMode==="net", cols = one ? 3 : 4;
-  const signed = v => (v<0 ? "-" : "") + money(Math.abs(v));
-  let b = '<thead><tr><th>Number</th><th>Account</th>'
-        + (one ? '<th class="num">Balance</th>' : '<th class="num">Debit</th><th class="num">Credit</th>') + '</tr></thead><tbody>';
-  const row = (num, name, v) => {
-    if(v>0) tdr += v; else tcr -= v;
-    return '<tr class="ac"><td>' + esc(num) + '</td><td>' + name + '</td>'
-         + (one ? '<td class="num">' + signed(v) + '</td>'
-                : '<td class="num">' + (v>0 ? money(v) : '') + '</td><td class="num">' + (v<0 ? money(-v) : '') + '</td>') + '</tr>';
-  };
+  const one = root.tbMode==="net";
+  let prior = c.prior, tdr = 0, tcr = 0;
+  const rows = [];
   for(const t of TYPE_ORDER){
-    let rows = '';
+    const block = [];
+    const add = (num, name, v) => {
+      if(v>0) tdr += v; else tcr -= v;
+      const r = Row("ac", name, one ? [v] : [v>0 ? v : null, v<0 ? -v : null], null, num);
+      r.type = TYPES[t].label;
+      block.push(r);
+    };
     for(const a of sortedAccts().filter(a => a.type===t)){
       let v = (isIS(a) ? ytd : c.cum).get(a.id) || 0;
       if(a.sub==="re" && prior){ v -= prior; prior = 0; }   // earlier years' income is a credit to retained earnings
-      if(v) rows += row(a.num, esc(a.name), v);
+      if(v) add(a.num, a.name, v);
     }
-    if(t==="equity" && prior){ rows += row("", "Retained earnings — earlier years' income", -prior); prior = 0; }
-    if(rows) b += '<tr class="sec"><td colspan="' + cols + '">' + TYPES[t].plural + '</td></tr>' + rows;
+    if(t==="equity" && prior){ add("", "Retained earnings — earlier years' income", -prior); prior = 0; }
+    if(block.length) rows.push(Row("sec", TYPES[t].plural), ...block);
   }
-  b += '<tr class="tot"><td></td><td>' + (one ? 'Net' : 'Totals') + '</td>'
-     + (one ? '<td class="num">' + signed(tdr-tcr) + '</td>' : '<td class="num">' + money(tdr) + '</td><td class="num">' + money(tcr) + '</td>') + '</tr></tbody>';
-  const pill = tdr===tcr ? '<span class="pill good">Balanced</span>' : '<span class="pill bad">Out by ' + fmt$(Math.abs(tdr-tcr)) + '</span>';
-  const seg = '<span class="seg no-print">'
-    + '<button class="small' + (one?'':' on') + '" onclick="setTbMode(\'drcr\')">Debit / Credit</button>'
-    + '<button class="small' + (one?' on':'') + '" onclick="setTbMode(\'net\')">Single column</button></span>';
-  return stmtCard("Trial balance", "At " + gD(D), '<span class="row" style="align-items:center">' + seg + pill + '</span>', b,
-    (one ? "Debits are positive and credits negative, so the column nets to zero when the books balance. " : "")
-    + "Accounts with a zero balance are left out. Income and expense accounts restart at zero each fiscal year; everything they earned before " + fmtD(fyStart(fy)) + " is in retained earnings.", "tbcard");
+  rows.push(Row("tot", one ? "Net" : "Totals", one ? [tdr-tcr] : [tdr, tcr]));
+  const ok = tdr===tcr;
+  return {title:"Trial balance", sheet:"Trial Balance", cls:"tbcard", numCol:true, showHead:true,
+    period:["At ",{d:D}," · income and expense accounts for " + fyLabel(fy) + " to date, from ",{d:fyStart(fy)}],
+    cols: one ? ["Balance"] : ["Debit","Credit"], fmt: one ? "signed" : "plain", rows,
+    check:{ok, label: ok ? "Balanced" : "Out by " + fmt$(Math.abs(tdr-tcr))},
+    extraHtml:'<span class="seg no-print">'
+      + '<button class="small' + (one?'':' on') + '" onclick="setTbMode(\'drcr\')">Debit / Credit</button>'
+      + '<button class="small' + (one?' on':'') + '" onclick="setTbMode(\'net\')">Single column</button></span>',
+    foot:(one ? "Debits are positive and credits negative, so the column nets to zero when the books balance. " : "")
+      + "Accounts with a zero balance are left out. Income and expense accounts restart at zero each fiscal year; everything they earned before " + fmtD(fyStart(fy)) + " is in retained earnings."};
+}
+
+function currentStatements(){
+  const D = ui.asOf, fy = fyOf(D), from = fyStart(fy), PE = fyEndDate(fy-1);
+  return root.view==="tb" ? [trialBalance(D)] : [balanceSheet(D, PE), incomeStatement(from, D), cashFlow(from, D, PE)];
+}
+function renderReports(){
+  $("expBtn").disabled = !root.entries.length;
+  if(!root.entries.length){
+    $("stmts").innerHTML = '<div class="card empty" style="grid-column:1/-1"><div class="muted">No entries yet. Set up your chart of accounts and post a journal entry — or load the demo from Settings &amp; backup — and the balance sheet, P&amp;L and cash flow will build here.</div></div>';
+    return;
+  }
+  $("stmts").innerHTML = currentStatements().map(stmtHtml).join("");
+}
+
+/* ---------- export ----------
+   Hand-rolled like everything else here: an .xlsx is a zip of a few XML files and a PDF is a text
+   format, so neither needs a library. Both read the same statement objects the page renders. */
+function toggleExport(e){
+  e.stopPropagation();
+  $("expMenu").classList.toggle("open");
+}
+function closeExport(){ $("expMenu").classList.remove("open"); }
+function download(name, type, parts){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(parts, {type}));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+function exportName(ext){
+  const slug = s => s.replace(/[^\w-]+/g,"-").replace(/^-+|-+$/g,"").toLowerCase();
+  const what = root.view==="tb" ? "trial-balance" + (root.tbMode==="net" ? "-single-column" : "") : "financial-statements";
+  return (root.company ? slug(root.company) + "-" : "") + what + "-" + ui.asOf + "." + ext;
+}
+function doExport(kind){
+  closeExport();
+  if(!root.entries.length) return;
+  const S = currentStatements();
+  if(kind==="csv") download(exportName("csv"), "text/csv;charset=utf-8", ["﻿" + toCSV(S)]);
+  else if(kind==="xlsx") download(exportName("xlsx"), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", toXLSX(S));
+  else download(exportName("pdf"), "application/pdf", toPDF(S));
+}
+const isTB = S => S.length===1 && S[0].numCol;
+const dec2 = v => v==null ? "" : (v/100).toFixed(2);   // -1234.56: no separators, a plain minus — what import tools expect
+
+/* --- CSV --- */
+function toCSV(S){
+  const cell = x => { const s = x==null ? "" : String(x); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
+  const out = [];
+  if(isTB(S)){
+    // One header row and one row per account, nothing else, so it imports without clean-up.
+    const s = S[0];
+    out.push(["Account number","Account name","Type",...s.cols]);
+    for(const r of s.rows) if(r.k==="ac") out.push([r.num, segText(r.label), r.type, ...r.v.map(dec2)]);
+  }else{
+    if(root.company) out.push([root.company]);
+    for(const s of S){
+      if(out.length) out.push([]);
+      out.push([s.title], [segText(s.period)], ["", ...s.cols]);
+      for(const r of s.rows){
+        if(r.k==="gap") continue;
+        const label = segText(r.label);
+        out.push([r.k==="sec" ? label.toUpperCase() : label, ...(r.v ? r.v.map(dec2) : [])]);
+      }
+    }
+  }
+  return out.map(r => r.map(cell).join(",")).join("\r\n") + "\r\n";
+}
+
+/* --- XLSX --- */
+const xmlEsc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const colLetter = i => { let s = ""; for(i++; i; i = Math.floor((i-1)/26)) s = String.fromCharCode(65 + (i-1)%26) + s; return s; };
+function toXLSX(S){
+  // Style registry: [font, border, numFmt, indent, right]. Fonts: 0 body, 1 bold, 2 title, 3 grey, 4 section label.
+  // Borders: 0 none, 1 bottom, 2 top, 3 top + double bottom. numFmt 164 is the statements' parentheses format; 4 is #,##0.00.
+  const xfs = [[0,0,0,0,0]];
+  const st = (font=0, border=0, numFmt=0, indent=0, right=0) => {
+    const k = [font,border,numFmt,indent,right].join();
+    let i = xfs.findIndex(x => x.join()===k);
+    if(i<0){ xfs.push([font,border,numFmt,indent,right]); i = xfs.length-1; }
+    return i;
+  };
+  const txt = (v, s) => ({t:"s", v, s}), num = (v, s) => ({t:"n", v, s});
+  const tb = isTB(S);
+  const sheets = S.map(s => {
+    const nf = s.fmt==="acct" ? 164 : 4, rows = [];
+    if(tb){
+      rows.push(["Account number","Account name","Type",...s.cols].map((h,i) => txt(h, st(1,1,0,0,i>=3?1:0))));
+      for(const r of s.rows) if(r.k==="ac")
+        rows.push([txt(r.num, 0), txt(segText(r.label), 0), txt(r.type, 0), ...r.v.map(v => v==null ? null : num(v, st(0,0,nf)))]);
+      const t = s.rows.find(r => r.k==="tot");
+      rows.push([], [null, txt(t.label, st(1)), null, ...t.v.map(v => num(v, st(1,3,nf)))]);
+    }else{
+      if(root.company) rows.push([txt(root.company, st(2))]);
+      rows.push([txt(s.title, st(root.company ? 1 : 2))], [txt(segText(s.period), st(3))], []);
+      rows.push([txt("", st(1,1)), ...s.cols.map(c => txt(c, st(1,1,0,0,1)))]);
+      for(const r of s.rows){
+        if(r.k==="gap"){ rows.push([]); continue; }
+        const label = segText(r.label);
+        if(r.k==="sec"){ rows.push([txt(label.toUpperCase(), st(4))]); continue; }
+        if(r.k==="grp"){ rows.push([txt(label, st(1))]); continue; }
+        const bold = r.k==="ac" ? 0 : 1, border = r.k==="sub" ? 2 : r.k==="tot" ? 3 : 0;
+        rows.push([txt(label, st(bold,0,0,r.k==="ac"?1:0)), ...r.v.map(v => num(v, st(bold,border,nf,0,1)))]);
+      }
+      if(s.foot) rows.push([], [txt(s.foot, st(3))]);
+    }
+    return {name:s.sheet, rows, freeze:tb, widths: tb ? [16,42,12,...s.cols.map(() => 16)] : [50,...s.cols.map(() => 22)]};
+  });
+
+  const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+  const HEAD = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
+  const REL = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const sheetXml = sh => {
+    let x = HEAD + '<worksheet ' + NS + '>';
+    if(sh.freeze) x += '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>';
+    x += '<cols>' + sh.widths.map((w,i) => '<col min="' + (i+1) + '" max="' + (i+1) + '" width="' + w + '" customWidth="1"/>').join("") + '</cols><sheetData>';
+    sh.rows.forEach((r, ri) => {
+      x += '<row r="' + (ri+1) + '">';
+      r.forEach((c, ci) => {
+        if(!c) return;
+        const ref = colLetter(ci) + (ri+1);
+        x += c.t==="n" ? '<c r="' + ref + '" s="' + c.s + '"><v>' + dec2(c.v) + '</v></c>'
+                       : '<c r="' + ref + '" s="' + c.s + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEsc(c.v) + '</t></is></c>';
+      });
+      x += '</row>';
+    });
+    return x + '</sheetData></worksheet>';
+  };
+  const font = (b, sz, grey) => '<font>' + (b ? '<b/>' : '') + '<sz val="' + sz + '"/>' + (grey ? '<color rgb="FF666666"/>' : '') + '<name val="Calibri"/></font>';
+  const styles = HEAD + '<styleSheet ' + NS + '>'
+    + '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00;(#,##0.00);&quot;—&quot;"/></numFmts>'
+    + '<fonts count="5">' + font(0,11) + font(1,11) + font(1,14) + font(0,10,1) + font(1,9,1) + '</fonts>'
+    + '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>'
+    + '<borders count="4"><border><left/><right/><top/><bottom/><diagonal/></border>'
+    + '<border><left/><right/><top/><bottom style="thin"/><diagonal/></border>'
+    + '<border><left/><right/><top style="thin"/><bottom/><diagonal/></border>'
+    + '<border><left/><right/><top style="thin"/><bottom style="double"/><diagonal/></border></borders>'
+    + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+    + '<cellXfs count="' + xfs.length + '">' + xfs.map(([f,b,n,ind,r]) =>
+        '<xf numFmtId="' + n + '" fontId="' + f + '" fillId="0" borderId="' + b + '" xfId="0" applyFont="1" applyBorder="1" applyNumberFormat="1"'
+        + (ind || r ? ' applyAlignment="1"><alignment' + (ind ? ' indent="' + ind + '"' : '') + (r ? ' horizontal="right"' : '') + '/></xf>' : '/>')).join("") + '</cellXfs>'
+    + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+  const files = [
+    {name:"[Content_Types].xml", data: HEAD + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+      + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'
+      + '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+      + '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+      + sheets.map((s,i) => '<Override PartName="/xl/worksheets/sheet' + (i+1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join("") + '</Types>'},
+    {name:"_rels/.rels", data: HEAD + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + '<Relationship Id="rId1" Type="' + REL + '/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+    {name:"xl/workbook.xml", data: HEAD + '<workbook ' + NS + ' xmlns:r="' + REL + '"><sheets>'
+      + sheets.map((s,i) => '<sheet name="' + xmlEsc(s.name) + '" sheetId="' + (i+1) + '" r:id="rId' + (i+1) + '"/>').join("") + '</sheets></workbook>'},
+    {name:"xl/_rels/workbook.xml.rels", data: HEAD + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+      + sheets.map((s,i) => '<Relationship Id="rId' + (i+1) + '" Type="' + REL + '/worksheet" Target="worksheets/sheet' + (i+1) + '.xml"/>').join("")
+      + '<Relationship Id="rId' + (sheets.length+1) + '" Type="' + REL + '/styles" Target="styles.xml"/></Relationships>'},
+    {name:"xl/styles.xml", data: styles},
+    ...sheets.map((s,i) => ({name:"xl/worksheets/sheet" + (i+1) + ".xml", data: sheetXml(s)}))
+  ];
+  return zipStore(files);
+}
+// A zip with every file stored uncompressed: valid, and a statement workbook is only a few kilobytes anyway.
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for(let n=0; n<256; n++){ let c = n; for(let k=0; k<8; k++) c = c & 1 ? 0xEDB88320 ^ (c>>>1) : c>>>1; t[n] = c>>>0; } return t; })();
+function crc32(b){ let c = 0xFFFFFFFF; for(let i=0; i<b.length; i++) c = CRC_TABLE[(c ^ b[i]) & 255] ^ (c>>>8); return (c ^ 0xFFFFFFFF)>>>0; }
+function zipStore(files){
+  const enc = new TextEncoder(), parts = [], central = [];
+  const d = new Date(), time = (d.getHours()<<11) | (d.getMinutes()<<5) | (d.getSeconds()>>1);
+  const date = ((d.getFullYear()-1980)<<9) | ((d.getMonth()+1)<<5) | d.getDate();
+  let off = 0;
+  for(const f of files){
+    const name = enc.encode(f.name), data = enc.encode(f.data), crc = crc32(data);
+    const h = new DataView(new ArrayBuffer(30));
+    h.setUint32(0,0x04034b50,true); h.setUint16(4,20,true); h.setUint16(6,0x0800,true); h.setUint16(8,0,true);
+    h.setUint16(10,time,true); h.setUint16(12,date,true); h.setUint32(14,crc,true);
+    h.setUint32(18,data.length,true); h.setUint32(22,data.length,true); h.setUint16(26,name.length,true); h.setUint16(28,0,true);
+    parts.push(new Uint8Array(h.buffer), name, data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0,0x02014b50,true); c.setUint16(4,20,true); c.setUint16(6,20,true); c.setUint16(8,0x0800,true); c.setUint16(10,0,true);
+    c.setUint16(12,time,true); c.setUint16(14,date,true); c.setUint32(16,crc,true);
+    c.setUint32(20,data.length,true); c.setUint32(24,data.length,true); c.setUint16(28,name.length,true);
+    c.setUint32(42,off,true);
+    central.push(new Uint8Array(c.buffer), name);
+    off += 30 + name.length + data.length;
+  }
+  const size = central.reduce((t,a) => t + a.length, 0);
+  const e = new DataView(new ArrayBuffer(22));
+  e.setUint32(0,0x06054b50,true); e.setUint16(8,files.length,true); e.setUint16(10,files.length,true);
+  e.setUint32(12,size,true); e.setUint32(16,off,true);
+  return [...parts, ...central, new Uint8Array(e.buffer)];
+}
+
+/* --- PDF ---
+   Letter pages in the two fonts every PDF reader carries, Helvetica and Helvetica-Bold, so nothing is
+   embedded. Right-aligned figures need real glyph widths; these are the standard metrics for
+   characters 32-126, in thousandths of the font size. */
+const HELV = {
+  r:[278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,
+     667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,
+     556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584],
+  b:[278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,
+     722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,
+     556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584]
+};
+// Unicode characters that WinAnsi has a slot for; anything else prints as "?".
+const WIN = {0x2014:0x97, 0x2013:0x96, 0x2026:0x85, 0x2019:0x92, 0x2018:0x91, 0x201C:0x93, 0x201D:0x94, 0x2022:0x95, 0x202F:0xA0, 0x2009:0x20, 0x2212:0x2D};
+const WIN_W = {0x97:[1000,1000], 0x96:[556,556], 0x85:[1000,1000], 0x92:[222,278], 0x91:[222,278], 0x93:[333,500], 0x94:[333,500], 0x95:[350,350], 0xA0:[278,278], 0xB7:[278,278]};
+function winCode(ch){
+  const c = ch.codePointAt(0);
+  if(c>=32 && c<=126) return c;
+  if(WIN[c]) return WIN[c];
+  return c>=0xA0 && c<=0xFF ? c : 0x3F;
+}
+const glyphW = (code, bold) => code>=32 && code<=126 ? HELV[bold ? "b" : "r"][code-32] : (WIN_W[code] ? WIN_W[code][bold ? 1 : 0] : 556);
+function textW(s, size, bold, tc){
+  let w = 0, n = 0;
+  for(const ch of String(s)){ w += glyphW(winCode(ch), bold); n++; }
+  return w/1000*size + (tc||0)*n;
+}
+function pdfStr(s){
+  let out = "";
+  for(const ch of String(s)){
+    const k = String.fromCharCode(winCode(ch));
+    out += (k==="(" || k===")" || k==="\\") ? "\\" + k : k;
+  }
+  return out;
+}
+function fitText(s, size, bold, max){
+  s = String(s);
+  if(textW(s, size, bold)<=max) return s;
+  while(s.length>1 && textW(s + "…", size, bold)>max) s = s.slice(0,-1);
+  return s.trimEnd() + "…";
+}
+function wrapText(s, size, max){
+  const out = [];
+  let line = "";
+  for(const w of String(s).split(/\s+/)){
+    const t = line ? line + " " + w : w;
+    if(line && textW(t, size, false)>max){ out.push(line); line = w; } else line = t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function toPDF(S){
+  const W = 612, H = 792, L = 54, R = W - 54, TOP = H - 54, BOT = 64, co = root.company;
+  const pages = [];
+  let ops, y;
+  const n2 = x => String(Math.round(x*100)/100);
+  const T = (x, yy, s, size, bold, grey, tc) => ops.push("BT /" + (bold ? "F2" : "F1") + " " + size + " Tf " + (grey ? "0.42" : "0") + " g " + (tc||0) + " Tc "
+                                                        + n2(x) + " " + n2(yy) + " Td (" + pdfStr(s) + ") Tj ET");
+  const TR = (xr, yy, s, size, bold, grey) => T(xr - textW(s, size, bold), yy, s, size, bold, grey);
+  const LN = (x1, y1, x2, y2, w) => ops.push(n2(w) + " w 0.35 G " + n2(x1) + " " + n2(y1) + " m " + n2(x2) + " " + n2(y2) + " l S");
+
+  for(const s of S){
+    const nv = s.cols.length, colW = s.numCol ? 100 : 92;
+    const valR = i => R - (nv-1-i)*colW;
+    const labelX = L + (s.numCol ? 70 : 0), labelMax = R - nv*colW - labelX - 12;
+    const newPage = cont => {
+      ops = []; pages.push(ops); y = TOP;
+      if(co){ T(L, y, co, 10, true, true); y -= 17; }
+      T(L, y, s.title + (cont ? " (continued)" : ""), 15, true); y -= 15;
+      T(L, y, segText(s.period), 8.5, false, true); y -= 10;
+      LN(L, y, R, y, 0.75); y -= 17;
+      if(s.showHead){
+        if(s.numCol){ T(L, y, "NUMBER", 7, true, true, 0.4); T(labelX, y, "ACCOUNT", 7, true, true, 0.4); }
+        s.cols.forEach((c,i) => TR(valR(i), y, s.headDates ? c : c.toUpperCase(), 7.5, true, true));
+        y -= 6; LN(L, y, R, y, 0.4); y -= 13;
+      }
+    };
+    newPage(false);
+    const HT = {sec:21, grp:15, ac:13.5, sub:15, tot:18, gap:7};
+    for(const r of s.rows){
+      if(y - HT[r.k] < BOT) newPage(true);
+      if(r.k==="gap"){ y -= HT.gap; continue; }
+      const label = segText(r.label);
+      if(r.k==="sec"){ y -= 7; T(L, y, label.toUpperCase(), 7.5, true, true, 0.5); y -= 14; continue; }
+      if(r.k==="grp"){ T(labelX, y, fitText(label, 9, true, R-labelX), 9, true); y -= HT.grp; continue; }
+      const bold = r.k!=="ac", x = labelX + (r.k==="ac" && !s.numCol ? 11 : r.k==="sub" ? 4 : 0);
+      if(s.numCol && r.num) T(L, y, r.num, 9);
+      T(x, y, fitText(label, 9, bold, labelMax - (x-labelX)), 9, bold);
+      r.v.forEach((v,i) => {
+        if(r.k==="sub" || r.k==="tot") LN(valR(i) - colW + 16, y + 10.5, valR(i), y + 10.5, 0.5);
+        if(r.k==="tot"){ LN(valR(i) - colW + 16, y - 4, valR(i), y - 4, 0.5); LN(valR(i) - colW + 16, y - 5.8, valR(i), y - 5.8, 0.5); }
+        if(v!=null) TR(valR(i), y, fmtV(s, v), 9, bold);
+      });
+      y -= HT[r.k];
+    }
+    if(s.foot){
+      y -= 8;
+      for(const line of wrapText(s.foot, 7.5, R-L)){
+        if(y - 10 < BOT) newPage(true);
+        T(L, y, line, 7.5, false, true); y -= 10;
+      }
+    }
+  }
+  pages.forEach((p, i) => {
+    ops = p;
+    LN(L, 50, R, 50, 0.4);
+    T(L, 38, "Prepared " + fmtD(today()) + (co ? " · " + co : ""), 7, false, true);
+    TR(R, 38, "Page " + (i+1) + " of " + pages.length, 7, false, true);
+  });
+
+  const objs = [];
+  objs[0] = "<< /Type /Catalog /Pages 2 0 R >>";
+  objs[2] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+  objs[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>";
+  const kids = [];
+  pages.forEach((p, i) => {
+    const pn = 5 + i*2, cn = 6 + i*2, stream = p.join("\n");
+    kids.push(pn + " 0 R");
+    objs[pn-1] = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + W + " " + H + "] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents " + cn + " 0 R >>";
+    objs[cn-1] = "<< /Length " + stream.length + " >>\nstream\n" + stream + "\nendstream";
+  });
+  objs[1] = "<< /Type /Pages /Kids [" + kids.join(" ") + "] /Count " + pages.length + " >>";
+  objs.push("<< /Title (" + pdfStr((co ? co + " — " : "") + S.map(s => s.title).join(", ")) + ") /Creator (Books) >>");
+  let out = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+  const offs = [];
+  objs.forEach((o, i) => { offs.push(out.length); out += (i+1) + " 0 obj\n" + o + "\nendobj\n"; });
+  const xref = out.length;
+  out += "xref\n0 " + (objs.length+1) + "\n0000000000 65535 f \n" + offs.map(o => String(o).padStart(10,"0") + " 00000 n \n").join("");
+  out += "trailer\n<< /Size " + (objs.length+1) + " /Root 1 0 R /Info " + objs.length + " 0 R >>\nstartxref\n" + xref + "\n%%EOF\n";
+  const bytes = new Uint8Array(out.length);
+  for(let i=0; i<out.length; i++) bytes[i] = out.charCodeAt(i) & 255;
+  return [bytes];
 }
 
 function render(){ renderTop(); renderBanners(); renderToolbar(); renderTool(); renderReportsHead(); renderReports(); }
 
-document.addEventListener("keydown", e => { if(e.key==="Escape" && ui.tool) openTool(null); });
+document.addEventListener("keydown", e => { if(e.key!=="Escape") return; closeExport(); if(ui.tool) openTool(null); });
+document.addEventListener("click", e => { if(!e.target.closest(".menuwrap")) closeExport(); });
 
 // Coming back to a tab left open overnight still posts what came due, rather than waiting for a reload.
 document.addEventListener("visibilitychange", () => {
