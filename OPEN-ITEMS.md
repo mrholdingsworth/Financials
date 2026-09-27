@@ -5,8 +5,116 @@ Single self-contained `index.html`, house style from `../PROJECT-HANDOFF.md`. St
 
 ## To do
 
-- Nothing open. Live at https://mrholdingsworth.github.io/Financials/ (repo
-  `mrholdingsworth/Financials`, Pages from `main` / root). The path is case-sensitive.
+Live at https://mrholdingsworth.github.io/Financials/ (repo `mrholdingsworth/Financials`, Pages from
+`main` / root). The path is case-sensitive.
+
+Picked from the gap review on 2026-09-26. Grouped by area; order within a group is not priority.
+
+### Controls and data integrity
+- **Period close / lock date.** A "books closed through" date. Posting, editing or deleting before
+  it is blocked unless deliberately unlocked. Today nothing protects a year that has already been
+  reported.
+- **Audit trail / change log.** Record each post, edit and delete, with when it happened and the
+  before/after values. At present an edit silently overwrites.
+- **Void instead of delete.** A voided entry stays in the journal, marked void, with a reason.
+- **Sequential entry numbering with gap detection.** Entry and account IDs share one counter
+  (`root.seq`), so entry numbers skip. Give entries their own unbroken sequence and report any gaps.
+- **Adjusting-entry flag.** Tag each entry as normal, adjusting, reclassification or
+  auditor-proposed, and filter and report by tag.
+- **Integrity self-check tool.** Rebuild every balance and confirm: the trial balance ties, cash flow
+  ties, retained earnings rolls forward, and no entry references a missing account.
+- **Duplicate-entry warning.** Same date, amount and accounts as an existing entry. A flag, not a veto.
+- **Future-dated entry warning.** For example, a typo'd year like 2062.
+
+### Storage, backup and security
+- **Storage-size monitoring.** localStorage tops out at roughly 5 MB. Show usage and warn well before
+  the limit, not when a save fails.
+- **Automatic backup reminders**, or scheduled local backup files through the File System Access API.
+- **Versioned backups.** Keep the last N snapshots in IndexedDB so a bad import can be rolled back.
+- **Encryption at rest with a passphrase.** The books currently sit unencrypted in browser storage.
+- **Multiple companies / books** in one browser, with a switcher.
+- **Backup file checksum**, so a corrupted or hand-edited backup is detected on import.
+
+### Chart of accounts
+- **Account hierarchy.** Parent and sub-accounts with roll-up totals.
+- **More subtypes:** unearned revenue, accrued interest, allowance for doubtful accounts, sales
+  discounts/returns (contra revenue), treasury stock, dividends payable, deferred tax, intangibles
+  and accumulated amortisation, right-of-use assets, lease liabilities. Each one needs a statement
+  placement and a cash flow bucket decided.
+- **Account descriptions / notes** saying what belongs in the account.
+- **Account merge.** Move all history from one account into another, then retire the first.
+- **Tax-line mapping per account** (Schedule C, 1120-S, 1065 lines).
+- **Normal-balance override** for unusual accounts.
+
+### Opening balances and setup
+- **Opening balance entry wizard.** Enter a trial balance as of a start date.
+- **Mid-year start.** Year-to-date opening balances for revenue and expense accounts.
+
+### Journal entry workflow
+- **Line-level memos.** Today there's one memo per entry.
+- **Attachments / source documents** (receipts, invoices, statements) linked to entries and stored in
+  IndexedDB. Decide how they travel in backups — size matters here.
+- **Copy / duplicate an entry.**
+- **Keyboard-driven entry.** Enter adds a line, and account selection gets type-ahead search in place
+  of the long select.
+- **Batch entry grid** for keying many entries quickly.
+- **Recurring: warn before a schedule ends**, not only after. Settle how early once there's a real
+  schedule to judge by.
+- **Recurring: variable amounts**, such as loan amortisation where the interest/principal split
+  changes each payment.
+- **Recurring: skip a single occurrence.**
+- **Recurring: a "last day of month" rule** that isn't tied to the anchor's day.
+
+### Cash and banking
+- **Bank reconciliation.** Mark items cleared, track outstanding cheques and deposits, keep a
+  reconciliation report per statement date, and lock reconciled items.
+- **Transfers between cash accounts** as a first-class action.
+- **Negative cash warning.** Suggest reclassifying an overdraft as a liability on the balance sheet.
+- **Petty cash handling.**
+- **Cheque register / cheque numbering.**
+
+### Receivables and payables
+- **Customers and vendors** as records, attached to entry lines.
+- **Invoices and bills** that post to AR/AP.
+- **AR and AP aging reports** (current / 30 / 60 / 90+).
+- **Allowance for doubtful accounts / bad-debt write-offs.**
+
+### Fixed assets
+- **Fixed asset register:** cost, in-service date, useful life, method, salvage value.
+- **Automatic depreciation schedules** (straight line, declining balance, units of production) that
+  generate the entries. Likely builds on the recurring engine.
+- **Disposals with gain/loss calculation**, split out correctly in the cash flow statement. Today a
+  disposal reads as an investing inflow plus a mis-signed depreciation line, and the Chart of
+  accounts hint warns about it.
+- **Capitalisation threshold** setting, warning when an expense line exceeds it.
+
+### Reporting
+- **Comparative P&L:** prior year, prior period, and variance in amount and %. The balance sheet
+  already has a comparative column.
+- **Monthly and quarterly P&L columns** across the fiscal year.
+- **Statement of changes in equity** — the fourth statement.
+- **General ledger detail report**, exportable, for a period across all accounts.
+- **Journal report** of all entries in a date range, for printing or audit.
+- **Custom date ranges.** Reports are tied to fiscal year to date today.
+- **Budget vs actual**, with budgets entered per account per month.
+- **Reclassification of contra balances on statements**, e.g. AR with a credit balance or customer
+  deposits.
+
+### UX and accessibility
+- **Global search** across entries, accounts and amounts.
+- **Keyboard shortcuts**, e.g. N for new entry and / to search. Esc already closes modals.
+- **Help / glossary** explaining each subtype and where it lands on the statements.
+- **Screen-reader labels** on icon-only buttons, and focus trapping inside modals.
+- **Light theme option.** The house style is dark-only by design, so this is a deliberate departure.
+- **Drill-down.** Click a statement line to open that account's ledger for the period.
+
+### Engineering hygiene
+- **Automated self-test page.** Load the demo books and assert every hand-checked total (70,070
+  total assets, 19,040 YTD net income, 85,330 trial balance, 47,470 ending cash…). This is the
+  check that has been run by hand after each change.
+- **Schema migration test** against old backup files.
+- **Performance check at 10,000+ entries.** `sums()` rescans every entry for each report.
+- **Service worker for offline use / install as an app.**
 
 ## Versions
 
@@ -24,13 +132,19 @@ version footer with its data-storage disclaimer.
 ## Ideas, not started
 
 - CSV import of bank transactions, turned into draft entries.
-- A comparative prior-year column on the P&L. The balance sheet already has one.
 - Recurring: a "no end" option. Left out on purpose — every schedule ends, so that each one
   eventually comes back for review. Revisit if open-ended schedules become a nuisance to extend.
-- Recurring: warn a few weeks before a schedule finishes, not only after. Settle it once there's a
-  real schedule to see how early the warning would need to come.
-- Split out the current portion of long-term debt, and gains/losses on asset disposals, in the cash
-  flow statement.
+- Split out the current portion of long-term debt in the balance sheet and cash flow statement.
+
+Also reviewed on 2026-09-26 and left off the To do list: reversing entries; undo; import
+validation beyond what exists; cloud sync; enforcing account number ranges by type; starter chart
+templates; conversion from other software; entry templates; percentage splits; approval workflow;
+bank CSV/OFX/QFX import; payment application; customer/vendor statements; 1099 tracking; credit
+memos, refunds and deposits; book vs tax depreciation; accrual, prepaid and deferral schedules;
+sales tax, payroll and inventory; KPI tiles, direct-method cash flow, notes, PDF cover page and
+contents, cash-basis toggle, classes/departments, jobs and charts; all audit-support tooling
+(lead sheets, JE testing, materiality, sampling, audit data exports); tax mapping beyond the
+per-account line; multi-currency and consolidation; mobile layout pass; onboarding checklist.
 
 ## Decided / done
 
